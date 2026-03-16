@@ -1,0 +1,154 @@
+@import "tailwindcss";
+
+/* ===== Design Tokens from Pencil ===== */
+
+:root {
+  /* Primary Colors */
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-light: #DBEAFE;
+
+  /* Layout Colors */
+  --color-sidebar: #1E293B;
+  --color-sidebar-hover: #334155;
+  --color-background: #F8FAFC;
+  --color-foreground: #0F172A;
+  --color-surface: #FFFFFF;
+
+  /* Status Colors */
+  --color-success: #16A34A;
+  --color-success-light: #DCFCE7;
+  --color-warning: #F59E0B;
+  --color-warning-light: #FEF3C7;
+  --color-danger: #DC2626;
+  --color-danger-light: #FEE2E2;
+
+  /* Portal Indicator Colors */
+  --color-portal-purple: #8B5CF6;
+  --color-portal-cyan: #06B6D4;
+  --color-portal-orange: #F97316;
+
+  /* Text Colors */
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #64748B;
+  --color-text-muted: #94A3B8;
+  --color-text-inverse: #FFFFFF;
+
+  /* Border Colors */
+  --color-border: #E2E8F0;
+  --color-border-hover: #CBD5E1;
+
+  /* Font Sizes */
+  --text-h1: 28px;
+  --text-h2: 24px;
+  --text-h3: 17px;
+  --text-body: 14px;
+  --text-small: 13px;
+  --text-xs: 11px;
+
+  /* Border Radius */
+  --radius-input: 8px;
+  --radius-card: 12px;
+  --radius-modal: 16px;
+  --radius-badge: 100px;
+}
+
+/* ===== Tailwind Theme Extension ===== */
+@theme inline {
+  /* Colors */
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-primary-light: var(--color-primary-light);
+
+  --color-sidebar: var(--color-sidebar);
+  --color-sidebar-hover: var(--color-sidebar-hover);
+  --color-background: var(--color-background);
+  --color-foreground: var(--color-foreground);
+  --color-surface: var(--color-surface);
+
+  --color-success: var(--color-success);
+  --color-success-light: var(--color-success-light);
+  --color-warning: var(--color-warning);
+  --color-warning-light: var(--color-warning-light);
+  --color-danger: var(--color-danger);
+  --color-danger-light: var(--color-danger-light);
+
+  --color-portal-purple: var(--color-portal-purple);
+  --color-portal-cyan: var(--color-portal-cyan);
+  --color-portal-orange: var(--color-portal-orange);
+
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-text-inverse: var(--color-text-inverse);
+
+  --color-border: var(--color-border);
+  --color-border-hover: var(--color-border-hover);
+
+  /* Font Family */
+  --font-sans: var(--font-inter);
+
+  /* Font Sizes */
+  --text-h1: var(--text-h1);
+  --text-h2: var(--text-h2);
+  --text-h3: var(--text-h3);
+  --text-body: var(--text-body);
+  --text-small: var(--text-small);
+  --text-xs: var(--text-xs);
+
+  /* Border Radius */
+  --radius-input: var(--radius-input);
+  --radius-card: var(--radius-card);
+  --radius-modal: var(--radius-modal);
+  --radius-badge: var(--radius-badge);
+}
+
+/* ===== Base Styles ===== */
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-inter, 'Inter', system-ui, -apple-system, sans-serif);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Use dvh for mobile viewport units where supported */
+@supports (height: 100dvh) {
+  .h-screen {
+    height: 100dvh;
+  }
+}
+
+/* ===== Scrollbar Styles ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-text-muted);
+  border-radius: var(--radius-badge);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* ===== Focus Styles ===== */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ===== Selection ===== */
+::selection {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
