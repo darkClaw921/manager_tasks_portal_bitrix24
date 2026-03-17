@@ -119,9 +119,6 @@ async function getTaskChatId(
 
   const accessToken = await getValidToken(portalId);
 
-  // New Bitrix24 API requires /api/ prefix in URL for chat fields
-  // clientEndpoint is like "https://domain.bitrix24.ru/rest/"
-  // We need "https://domain.bitrix24.ru/rest/api/tasks.task.get"
   const url = `${portal.clientEndpoint}api/tasks.task.get`;
 
   try {
@@ -141,17 +138,14 @@ async function getTaskChatId(
     const data = await response.json();
 
     if (data.error) {
-      console.log(`[comments] New API (chat.id) error for task ${bitrixTaskId}: ${data.error} - ${data.error_description || ''}`);
       return null;
     }
 
-    // Response: { result: { item: { id, chat: { id, entityId, entityType } } } }
     const chatId = data.result?.item?.chat?.id;
     if (chatId) {
       return Number(chatId);
     }
 
-    // Fallback: try old field name
     const taskData = data.result?.task || data.result?.item;
     if (taskData) {
       const id = taskData.chat?.id || taskData.CHAT_ID || taskData.chatId;
@@ -159,8 +153,7 @@ async function getTaskChatId(
     }
 
     return null;
-  } catch (error) {
-    console.log(`[comments] Failed to get chat ID for task ${bitrixTaskId}:`, error instanceof Error ? error.message : error);
+  } catch {
     return null;
   }
 }
@@ -209,7 +202,6 @@ async function fetchChatMessages(
   let firstId = 0;
 
   try {
-    // Paginate through all messages (max 50 per request)
     while (true) {
       const response = await client.call<Record<string, unknown>>('im.dialog.messages.get', {
         DIALOG_ID: dialogId,
@@ -219,25 +211,8 @@ async function fetchChatMessages(
 
       const result = response.result;
 
-      // Log response structure
-      if (firstId === 0) {
-        console.log(`[comments] Chat ${chatId} response keys:`, result ? Object.keys(result) : 'null');
-        if (result?.files || result?.Files) {
-          const fMap = result.files || result.Files;
-          console.log(`[comments] Chat ${chatId} files map keys:`, Object.keys(fMap as object).slice(0, 10));
-          const firstFile = Object.values(fMap as object)[0];
-          if (firstFile) {
-            console.log(`[comments] Chat ${chatId} first file keys:`, Object.keys(firstFile as object));
-            console.log(`[comments] Chat ${chatId} first file:`, JSON.stringify(firstFile).substring(0, 300));
-          }
-        }
-      }
-
-      // Extract messages array from response
       const messages = (result?.messages || result?.Messages || []) as ChatMessage[];
-      // Extract users map for author names and photos
       const users = (result?.users || result?.Users || {}) as Record<string, { name?: string; first_name?: string; last_name?: string; avatar?: string; }>;
-      // Extract files and build lookup by file ID
       // Bitrix24 returns files as array-like object { '0': {...}, '1': {...} }, not keyed by file ID
       const rawFiles = (result?.files || result?.Files || {}) as Record<string, ChatFile>;
       const filesMap: Record<string, ChatFile> = {};
@@ -250,16 +225,11 @@ async function fetchChatMessages(
       if (!messages || messages.length === 0) break;
 
       for (const msg of messages) {
-        // Skip system messages (task created, status changes, etc.)
         if (msg.system === 'Y' || msg.system === '1') continue;
 
         const text = msg.text || msg.text_legacy || '';
-        const rawMsg = msg as unknown as Record<string, unknown>;
         const fileIds = Array.isArray(msg.params?.FILE_ID) ? msg.params.FILE_ID : [];
         const hasFiles = fileIds.length > 0;
-
-        // Log every non-system message with its raw params
-        console.log(`[comments] Chat msg id=${msg.id}, system=${msg.system}, text="${(text).substring(0, 60)}", params keys=${rawMsg.params ? Object.keys(rawMsg.params as object).join(',') : 'none'}, FILE_ID=${JSON.stringify(fileIds)}`);
 
         // Skip messages with no text AND no files
         if (!text.trim() && !hasFiles) continue;
@@ -308,10 +278,8 @@ async function fetchChatMessages(
         });
       }
 
-      // Check if there are more messages
       if (messages.length < 50) break;
 
-      // Move cursor to load next batch (messages newer than last ID)
       const lastMsg = messages[messages.length - 1];
       if (lastMsg && lastMsg.id) {
         firstId = lastMsg.id;
@@ -344,24 +312,15 @@ export async function fetchComments(
   try {
     // Strategy 1: Chat API — file messages are only available here
     const chatId = await getTaskChatId(portalId, bitrixTaskId);
-    console.log(`[comments] Task ${bitrixTaskId}: chatId=${chatId}`);
 
     if (chatId) {
       const messages = await fetchChatMessages(portalId, chatId, bitrixTaskId);
-      console.log(`[comments] Task ${bitrixTaskId}: chat returned ${messages.length} messages`);
       if (messages.length > 0) {
-        for (const msg of messages) {
-          const raw = msg as unknown as Record<string, unknown>;
-          const hasAttach = !!(raw.ATTACHED_OBJECTS || raw.attachedObjects);
-          const textPreview = (msg.POST_MESSAGE || '').substring(0, 60);
-          console.log(`[comments]   msg ID=${msg.ID}, text="${textPreview}", hasAttach=${hasAttach}`);
-        }
         return messages;
       }
     }
 
     // Strategy 2: Old API fallback
-    console.log(`[comments] Task ${bitrixTaskId}: falling back to task.commentitem.getlist`);
     const client = createBitrix24Client(portalId);
     const response = await client.call<unknown>('task.commentitem.getlist', {
       TASKID: bitrixTaskId,
@@ -376,7 +335,6 @@ export async function fetchComments(
       comments = (result as BitrixComment[]) || [];
     }
 
-    console.log(`[comments] Task ${bitrixTaskId}: old API returned ${comments.length} comments`);
     if (comments.length > 0) {
       return comments;
     }
@@ -402,23 +360,6 @@ export async function syncComments(
   const comments = await fetchComments(portalId, bitrixTaskId);
   const domain = getPortalDomain(portalId);
 
-  // Debug: log first comment with ATTACHED_OBJECTS to see field structure
-  const withAttach = comments.find(c => c.ATTACHED_OBJECTS || (c as unknown as Record<string, unknown>).attachedObjects || (c as unknown as Record<string, unknown>).ATTACHED_OBJECTS);
-  if (withAttach) {
-    const raw = withAttach as unknown as Record<string, unknown>;
-    console.log(`[comments] Task ${bitrixTaskId} comment with attachments, keys:`, Object.keys(raw));
-    const attached = raw.ATTACHED_OBJECTS || raw.attachedObjects;
-    if (attached && typeof attached === 'object') {
-      const firstEntry = Object.entries(attached as Record<string, unknown>)[0];
-      if (firstEntry) {
-        console.log(`[comments] Attachment entry key="${firstEntry[0]}", value keys:`,
-          typeof firstEntry[1] === 'object' && firstEntry[1] ? Object.keys(firstEntry[1]) : firstEntry[1]);
-      }
-    }
-  }
-
-  console.log(`[comments] Syncing ${comments.length} comments for task ${bitrixTaskId} (local ${localTaskId})`);
-
   const now = new Date().toISOString();
 
   for (const comment of comments) {
@@ -436,7 +377,6 @@ export async function syncComments(
       .get();
 
     if (existing) {
-      // Update existing comment
       db.update(taskComments)
         .set({
           authorName: mapped.authorName,
@@ -448,7 +388,6 @@ export async function syncComments(
         .where(eq(taskComments.id, existing.id))
         .run();
     } else {
-      // Insert new comment
       db.insert(taskComments)
         .values({ ...mapped, createdAt: now })
         .run();
