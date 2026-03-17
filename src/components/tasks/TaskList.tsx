@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTasks } from '@/hooks/useTasks';
 import { usePortals } from '@/hooks/usePortals';
 import { usePortalStore } from '@/stores/portal-store';
+import { useUIStore } from '@/stores/ui-store';
 import { TaskRow } from '@/components/ui/TaskRow';
 import { SearchInput } from '@/components/ui/SearchInput';
 import { Badge } from '@/components/ui/Badge';
@@ -27,35 +28,59 @@ export interface TaskListProps {
 export function TaskList({ className }: TaskListProps) {
   const { activePortalId, setActivePortalId } = usePortalStore();
   const { data: portals } = usePortals();
+  const {
+    globalSearch,
+    setGlobalSearch,
+    globalStatusFilter,
+    setGlobalStatusFilter,
+    globalPriorityFilter,
+    globalDateFrom,
+    globalDateTo,
+  } = useUIStore();
 
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
 
+  // Reset page when filters change
+  const prevFiltersRef = useRef({ globalSearch, globalStatusFilter, globalPriorityFilter, globalDateFrom, globalDateTo, activePortalId });
+  useEffect(() => {
+    const prev = prevFiltersRef.current;
+    if (
+      prev.globalSearch !== globalSearch ||
+      prev.globalStatusFilter !== globalStatusFilter ||
+      prev.globalPriorityFilter !== globalPriorityFilter ||
+      prev.globalDateFrom !== globalDateFrom ||
+      prev.globalDateTo !== globalDateTo ||
+      prev.activePortalId !== activePortalId
+    ) {
+      setCurrentPage(1);
+      prevFiltersRef.current = { globalSearch, globalStatusFilter, globalPriorityFilter, globalDateFrom, globalDateTo, activePortalId };
+    }
+  }, [globalSearch, globalStatusFilter, globalPriorityFilter, globalDateFrom, globalDateTo, activePortalId]);
+
   const filters: TaskFilters = useMemo(() => ({
     portalId: activePortalId || undefined,
-    status: statusFilter || undefined,
-    search: search || undefined,
+    status: globalStatusFilter || undefined,
+    priority: globalPriorityFilter || undefined,
+    search: globalSearch || undefined,
+    dateFrom: globalDateFrom || undefined,
+    dateTo: globalDateTo || undefined,
     page: currentPage,
     limit: pageSize,
-  }), [activePortalId, statusFilter, search, currentPage]);
+  }), [activePortalId, globalStatusFilter, globalPriorityFilter, globalSearch, globalDateFrom, globalDateTo, currentPage]);
 
   const { data, isLoading, isError } = useTasks(filters);
 
   const handleSearchChange = useCallback((value: string) => {
-    setSearch(value);
-    setCurrentPage(1);
-  }, []);
+    setGlobalSearch(value);
+  }, [setGlobalSearch]);
 
   const handleStatusChange = useCallback((status: string) => {
-    setStatusFilter(status);
-    setCurrentPage(1);
-  }, []);
+    setGlobalStatusFilter(status);
+  }, [setGlobalStatusFilter]);
 
   const handlePortalChange = useCallback((portalId: number | null) => {
     setActivePortalId(portalId);
-    setCurrentPage(1);
   }, [setActivePortalId]);
 
   const tasks = data?.data || [];
@@ -66,7 +91,7 @@ export function TaskList({ className }: TaskListProps) {
     <div className={cn('space-y-4', className)}>
       {/* Search */}
       <SearchInput
-        value={search}
+        value={globalSearch}
         onChange={handleSearchChange}
         placeholder="Поиск задач..."
       />
@@ -114,7 +139,7 @@ export function TaskList({ className }: TaskListProps) {
             onClick={() => handleStatusChange(tab.value)}
             className={cn(
               'px-3 py-1.5 rounded-badge text-small font-medium transition-colors',
-              statusFilter === tab.value
+              globalStatusFilter === tab.value
                 ? 'bg-primary text-white'
                 : 'bg-background text-text-secondary border border-border hover:bg-surface'
             )}
@@ -168,7 +193,7 @@ export function TaskList({ className }: TaskListProps) {
           </svg>
           <p className="text-text-secondary text-body font-medium">Задач не найдено</p>
           <p className="text-text-muted text-small mt-1">
-            {search ? 'Попробуйте изменить параметры поиска' : 'Синхронизируйте портал для загрузки задач'}
+            {globalSearch ? 'Попробуйте изменить параметры поиска' : 'Синхронизируйте портал для загрузки задач'}
           </p>
         </div>
       ) : (

@@ -3,6 +3,8 @@ export type { TaskListProps } from './TaskList';
 
 export { CreateTaskModal } from './CreateTaskModal';
 
+export { FiltersModal } from './FiltersModal';
+
 export { TaskDetail } from './TaskDetail';
 export type { TaskDetailProps } from './TaskDetail';
 

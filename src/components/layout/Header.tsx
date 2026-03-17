@@ -8,6 +8,7 @@ import { NotificationDropdown } from '@/components/notifications/NotificationDro
 import { useUIStore } from '@/stores/ui-store';
 import { useUnreadCount } from '@/hooks/useNotifications';
 import { cn } from '@/lib/utils';
+import { useRouter, usePathname } from 'next/navigation';
 
 export interface HeaderProps {
   className?: string;
@@ -46,10 +47,22 @@ function PlusIcon() {
 }
 
 export function Header({ className }: HeaderProps) {
-  const { toggleSidebar, openModal } = useUIStore();
+  const { toggleSidebar, openModal, globalSearch, setGlobalSearch, hasActiveFilters } = useUIStore();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
 
   const { data: unreadCount = 0 } = useUnreadCount();
+
+  const filtersActive = hasActiveFilters();
+
+  const handleSearchChange = useCallback((value: string) => {
+    setGlobalSearch(value);
+    // Navigate to tasks page when searching from other pages
+    if (value && pathname !== '/tasks' && pathname !== '/dashboard') {
+      router.push('/tasks');
+    }
+  }, [setGlobalSearch, router, pathname]);
 
   const toggleNotifications = useCallback(() => {
     setIsNotificationsOpen((prev) => !prev);
@@ -82,7 +95,11 @@ export function Header({ className }: HeaderProps) {
 
         {/* Search - hidden on mobile */}
         <div className="hidden md:block flex-1 max-w-md">
-          <SearchInput />
+          <SearchInput
+            value={globalSearch}
+            onChange={handleSearchChange}
+            placeholder="Поиск задач..."
+          />
         </div>
 
         {/* Spacer */}
@@ -91,15 +108,19 @@ export function Header({ className }: HeaderProps) {
         {/* Right section */}
         <div className="flex items-center gap-2">
           {/* Filters button - hidden on mobile */}
-          <Button
-            variant="secondary"
-            size="sm"
-            className="hidden lg:inline-flex"
-            onClick={() => openModal('filters')}
-          >
-            <FilterIcon />
-            Фильтры
-          </Button>
+          <div className="relative hidden lg:block">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => openModal('filters')}
+            >
+              <FilterIcon />
+              Фильтры
+            </Button>
+            {filtersActive && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-primary" />
+            )}
+          </div>
 
           {/* Create task button */}
           <Button

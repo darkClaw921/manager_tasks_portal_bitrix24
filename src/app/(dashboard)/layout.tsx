@@ -4,6 +4,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { BottomTabs } from '@/components/layout/BottomTabs';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
+import { FiltersModal } from '@/components/tasks/FiltersModal';
 
 export default function DashboardLayout({
   children,
@@ -31,6 +32,9 @@ export default function DashboardLayout({
 
       {/* Create Task Modal - accessible from Header button */}
       <CreateTaskModal />
+
+      {/* Filters Modal - accessible from Header button */}
+      <FiltersModal />
     </div>
   );
 }
