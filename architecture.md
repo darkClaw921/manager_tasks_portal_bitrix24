@@ -282,10 +282,13 @@ src/
 |------|-------------|
 | [package.json](./package.json) | Dependencies, scripts (dev, build, type-check, db:push/studio/generate, vapid:generate, db:encrypt) |
 | [tsconfig.json](./tsconfig.json) | TypeScript strict mode, path alias `@/*` -> `./src/*`, excludes `service-worker/` dir |
-| [next.config.ts](./next.config.ts) | Next.js + @ducanh2912/next-pwa config (caching strategies, offline fallback, custom worker) |
+| [next.config.ts](./next.config.ts) | Next.js + @ducanh2912/next-pwa config (caching strategies, offline fallback, custom worker), `output: "standalone"` for Docker |
 | [postcss.config.mjs](./postcss.config.mjs) | PostCSS with @tailwindcss/postcss plugin |
 | [eslint.config.mjs](./eslint.config.mjs) | ESLint flat config with next/core-web-vitals + typescript |
 | [drizzle.config.ts](./drizzle.config.ts) | Drizzle Kit config: SQLite dialect, schema path, DB credentials |
+| [Dockerfile](./Dockerfile) | Multi-stage production build: deps (npm ci) → builder (next build) → runner (node:20-alpine, standalone output, better-sqlite3 native) |
+| [docker-compose.yml](./docker-compose.yml) | Production Docker Compose: single `taskhub` service, .env.production, named volume `taskhub-data` for SQLite persistence, healthcheck |
+| [.dockerignore](./.dockerignore) | Excludes node_modules, .next, .git, .env*, data/, drizzle/ from Docker context |
 | [.env.example](./.env.example) | Template for all env vars (JWT_SECRET, ADMIN_*, BITRIX_*, OPENROUTER_*, VAPID_*, ENCRYPTION_KEY) |
 | [.env.local](./.env.local) | Local development env vars |
 
@@ -785,3 +788,46 @@ Each main route has a `loading.tsx` that renders appropriate skeletons:
 |----------|-------------|
 | `OPENROUTER_API_KEY` | OpenRouter API key for AI features (Grok 4.1 Fast) |
 | `ENABLE_CRON` | Set to `true` to enable cron in development (auto-enabled in production) |
+
+---
+
+## Docker Production Deployment
+
+### Files
+
+| File | Description |
+|------|-------------|
+| [Dockerfile](./Dockerfile) | Multi-stage build: `deps` (npm ci + native compilation) → `builder` (next build with standalone output) → `runner` (node:20-alpine, minimal image) |
+| [docker-compose.yml](./docker-compose.yml) | Single service `taskhub`: builds from Dockerfile, mounts `taskhub-data` volume for SQLite, reads `.env.production`, healthcheck via `/api/auth/me` |
+| [.dockerignore](./.dockerignore) | Excludes node_modules, .next, .git, env files, data/ from build context |
+| [scripts/deploy-prod.sh](./scripts/deploy-prod.sh) | Production deploy script: validates Docker, creates/validates `.env.production`, runs `docker compose up` |
+
+### Usage
+
+```bash
+# First run — generates .env.production template, edit it, then re-run
+./scripts/deploy-prod.sh
+
+# With options
+./scripts/deploy-prod.sh --port 8080 --attached
+
+# Management
+./scripts/deploy-prod.sh logs       # tail logs
+./scripts/deploy-prod.sh status     # container status
+./scripts/deploy-prod.sh restart    # restart
+./scripts/deploy-prod.sh stop       # stop
+./scripts/deploy-prod.sh backup     # backup SQLite from volume
+./scripts/deploy-prod.sh rebuild    # force rebuild + restart
+```
+
+### How It Works
+
+1. `deploy-prod.sh` validates Docker is installed, checks/creates `.env.production` with auto-generated secrets
+2. `docker compose up --build -d` builds the multi-stage Dockerfile:
+   - **deps**: installs npm dependencies with native compilation (python3, make, g++ for better-sqlite3)
+   - **builder**: copies deps + source, runs `next build` producing standalone output
+   - **runner**: minimal Alpine image, copies standalone build + public + static assets
+3. Container starts `node server.js` — Next.js standalone server on port 3000
+4. Database migrations run automatically via `db/index.ts` on first connection (CREATE TABLE IF NOT EXISTS + ALTER TABLE + seed)
+5. SQLite data persisted in named Docker volume `taskhub-data` mounted at `/app/data`
+6. Cron jobs enabled via `ENABLE_CRON=true` environment variable in compose

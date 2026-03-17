@@ -76,7 +76,7 @@ export function mapBitrixFileToLocal(
  * Fetch file details from Bitrix24 Disk by file IDs.
  * Uses batch API to fetch up to 50 files at once.
  */
-async function fetchFilesByDiskIds(
+export async function fetchFilesByDiskIds(
   portalId: number,
   fileIds: number[]
 ): Promise<BitrixFile[]> {

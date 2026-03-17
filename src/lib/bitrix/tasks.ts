@@ -181,7 +181,7 @@ export function mapBitrixTaskToLocal(
     bitrixTaskId,
     title: bitrixTask.TITLE || 'Untitled',
     description: bitrixTask.DESCRIPTION || null,
-    descriptionHtml: bitrixTask.DESCRIPTION_IN_BBCODE || null,
+    descriptionHtml: bitrixTask.DESCRIPTION || null,
     status: mapBitrixStatus(bitrixTask.STATUS),
     priority: bitrixTask.PRIORITY || '1',
     mark: bitrixTask.MARK || null,
