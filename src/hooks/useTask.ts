@@ -92,7 +92,8 @@ export function useTask(id: number | null) {
     queryKey: ['task', id],
     queryFn: () => fetchTask(id!),
     enabled: id !== null,
-    staleTime: 30_000,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
     refetchOnWindowFocus: true,
   });
 }

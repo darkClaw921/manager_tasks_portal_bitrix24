@@ -82,6 +82,56 @@ export function generateBitrixUrl(
 }
 
 /**
+ * Convert a key to UPPER_SNAKE_CASE.
+ * Handles both camelCase (responsibleId → RESPONSIBLE_ID)
+ * and already UPPER_SNAKE_CASE (RESPONSIBLE_ID stays RESPONSIBLE_ID).
+ */
+function toUpperSnakeCase(str: string): string {
+  // Already UPPER_SNAKE_CASE or simple uppercase — keep as-is
+  if (/^[A-Z0-9_]+$/.test(str)) return str;
+  // Convert camelCase to UPPER_SNAKE_CASE
+  return str.replace(/([A-Z])/g, '_$1').toUpperCase();
+}
+
+/**
+ * Normalize Bitrix24 task keys to UPPER_SNAKE_CASE.
+ * Bitrix24 API returns camelCase (responsibleId) or UPPER_SNAKE_CASE (RESPONSIBLE_ID).
+ */
+function normalizeTaskKeys(task: Record<string, unknown>): BitrixTask {
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(task)) {
+    normalized[toUpperSnakeCase(key)] = value;
+  }
+  return normalized as unknown as BitrixTask;
+}
+
+/**
+ * Extract a name from a Bitrix24 sub-object (e.g. responsible, creator).
+ * Bitrix24 returns: { id, name, link, icon, workPosition }
+ */
+function extractSubName(obj: unknown): string | null {
+  if (!obj || typeof obj !== 'object') return null;
+  const o = obj as Record<string, unknown>;
+  const name = o.NAME || o.name;
+  if (name && typeof name === 'string') return name;
+  const first = o.FIRST_NAME || o.firstName || '';
+  const last = o.LAST_NAME || o.lastName || '';
+  if (first || last) return `${first} ${last}`.trim() || null;
+  return null;
+}
+
+/**
+ * Extract a photo URL from a Bitrix24 sub-object.
+ */
+function extractSubIcon(obj: unknown): string | null {
+  if (!obj || typeof obj !== 'object') return null;
+  const o = obj as Record<string, unknown>;
+  const icon = o.ICON || o.icon;
+  if (icon && typeof icon === 'string' && icon.startsWith('http')) return icon;
+  return null;
+}
+
+/**
  * Map a Bitrix24 task to local DB fields.
  */
 export function mapBitrixTaskToLocal(
@@ -89,17 +139,32 @@ export function mapBitrixTaskToLocal(
   portalId: number,
   domain: string
 ) {
+  // Access raw normalized data for sub-object lookups
+  const raw = bitrixTask as unknown as Record<string, unknown>;
+
   const bitrixTaskId = parseInt(String(bitrixTask.ID), 10);
   const groupId = parseInt(String(bitrixTask.GROUP_ID), 10) || null;
   const responsibleId = bitrixTask.RESPONSIBLE_ID || null;
 
-  // Handle tags: Bitrix24 returns tags as Record<string, string> or array
+  // Handle tags: Bitrix24 returns tags as string[], {id,title}[], or Record<string, string>
   let tags: string | null = null;
   if (bitrixTask.TAGS) {
+    let tagArray: unknown[];
     if (Array.isArray(bitrixTask.TAGS)) {
-      tags = JSON.stringify(bitrixTask.TAGS);
+      tagArray = bitrixTask.TAGS;
     } else if (typeof bitrixTask.TAGS === 'object') {
-      tags = JSON.stringify(Object.values(bitrixTask.TAGS));
+      tagArray = Object.values(bitrixTask.TAGS);
+    } else {
+      tagArray = [];
+    }
+    // Normalize: extract title from objects, keep strings as-is
+    const normalized = tagArray.map((t) =>
+      typeof t === 'object' && t !== null && 'title' in (t as Record<string, unknown>)
+        ? (t as { title: string }).title
+        : String(t)
+    );
+    if (normalized.length > 0) {
+      tags = JSON.stringify(normalized);
     }
   }
 
@@ -121,9 +186,15 @@ export function mapBitrixTaskToLocal(
     priority: bitrixTask.PRIORITY || '1',
     mark: bitrixTask.MARK || null,
     responsibleId,
-    responsibleName: bitrixTask.RESPONSIBLE_NAME || null,
+    responsibleName: bitrixTask.RESPONSIBLE_NAME
+      || extractSubName(raw.RESPONSIBLE)
+      || null,
+    responsiblePhoto: extractSubIcon(raw.RESPONSIBLE) || null,
     creatorId: bitrixTask.CREATED_BY || null,
-    creatorName: bitrixTask.CREATED_BY_NAME || null,
+    creatorName: bitrixTask.CREATED_BY_NAME
+      || extractSubName(raw.CREATOR)
+      || null,
+    creatorPhoto: extractSubIcon(raw.CREATOR) || null,
     groupId,
     stageId: parseInt(String(bitrixTask.STAGE_ID), 10) || null,
     deadline: bitrixTask.DEADLINE || null,
@@ -191,13 +262,24 @@ export async function fetchAllTasks(portalId: number): Promise<BitrixTask[]> {
   const pageSize = 50;
 
   while (true) {
-    const response = await client.call<{ tasks: BitrixTask[] }>('tasks.task.list', {
+    const response = await client.call<{ tasks?: BitrixTask[]; items?: BitrixTask[] }>('tasks.task.list', {
       order: { ID: 'asc' },
       select: TASK_SELECT_FIELDS,
       start,
     });
 
-    const pageTasks = response.result?.tasks || [];
+    // Bitrix24 returns result.tasks (old format) or result.items (new format)
+    const rawTasks = response.result?.tasks || response.result?.items || [];
+
+    // Log first task keys to debug field mapping
+    if (start === 0 && rawTasks.length > 0) {
+      const firstRaw = rawTasks[0] as unknown as Record<string, unknown>;
+      console.log(`[tasks] First task raw keys for portal ${portalId}:`, Object.keys(firstRaw).join(', '));
+      console.log(`[tasks] First task responsibleId/Name:`, firstRaw.responsibleId ?? firstRaw.RESPONSIBLE_ID ?? 'MISSING', '/', firstRaw.responsibleName ?? firstRaw.RESPONSIBLE_NAME ?? firstRaw.responsible ?? 'MISSING');
+      console.log(`[tasks] First task createdBy/Name:`, firstRaw.createdBy ?? firstRaw.CREATED_BY ?? 'MISSING', '/', firstRaw.createdByName ?? firstRaw.CREATED_BY_NAME ?? firstRaw.creator ?? 'MISSING');
+    }
+
+    const pageTasks = rawTasks.map((t) => normalizeTaskKeys(t as unknown as Record<string, unknown>));
     allTasks.push(...pageTasks);
 
     console.log(`[tasks] Fetched ${pageTasks.length} tasks (offset ${start}) for portal ${portalId}`);
@@ -223,12 +305,14 @@ export async function fetchSingleTask(
   const client = createBitrix24Client(portalId);
 
   try {
-    const response = await client.call<{ task: BitrixTask }>('tasks.task.get', {
+    const response = await client.call<{ task?: BitrixTask; item?: BitrixTask }>('tasks.task.get', {
       taskId: bitrixTaskId,
       select: TASK_SELECT_FIELDS,
     });
 
-    return response.result?.task || null;
+    // Bitrix24 returns result.task (old format) or result.item (new format)
+    const raw = response.result?.task || response.result?.item;
+    return raw ? normalizeTaskKeys(raw as unknown as Record<string, unknown>) : null;
   } catch (error) {
     console.error(`[tasks] Failed to fetch task ${bitrixTaskId} from portal ${portalId}:`, error);
     return null;

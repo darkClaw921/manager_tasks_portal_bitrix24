@@ -219,7 +219,7 @@ export function Sidebar() {
             <Avatar name={currentUser?.name || 'User'} size="sm" />
             <div className="flex-1 min-w-0">
               <p className="text-small font-medium text-text-inverse truncate">
-                {currentUser?.name || 'Loading...'}
+                {currentUser?.name || 'Загрузка...'}
               </p>
               <p className="text-xs text-slate-400 truncate">
                 {currentUser?.email || ''}

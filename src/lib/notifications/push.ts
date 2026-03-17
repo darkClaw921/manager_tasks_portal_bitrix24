@@ -4,6 +4,7 @@ import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { createNotification } from '@/lib/bitrix/webhook-handlers';
 import type { NotificationType } from '@/types';
+import { encrypt, decrypt } from '@/lib/crypto/encryption';
 
 // ==================== VAPID Configuration ====================
 
@@ -25,7 +26,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 export function savePushSubscription(userId: number, subscription: PushSubscriptionJSON): void {
   db.update(users)
     .set({
-      pushSubscription: JSON.stringify(subscription),
+      pushSubscription: encrypt(JSON.stringify(subscription)),
       updatedAt: new Date().toISOString(),
     })
     .where(eq(users.id, userId))
@@ -63,7 +64,8 @@ export function getPushSubscription(userId: number): webpush.PushSubscription | 
   if (!user?.pushSubscription) return null;
 
   try {
-    return JSON.parse(user.pushSubscription) as webpush.PushSubscription;
+    const decrypted = decrypt(user.pushSubscription);
+    return JSON.parse(decrypted) as webpush.PushSubscription;
   } catch {
     console.error(`[push] Failed to parse push subscription for user ${userId}`);
     return null;

@@ -1,7 +1,6 @@
 import { db } from '@/lib/db';
-import { userPortalAccess, userBitrixMappings, portals } from '@/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
-import { sql } from 'drizzle-orm';
+import { tasks, userPortalAccess, userBitrixMappings, portals } from '@/lib/db/schema';
+import { eq, and, or, like, sql, type SQL } from 'drizzle-orm';
 
 /**
  * Access info for a single portal: what the user can see + their Bitrix user ID.
@@ -59,13 +58,6 @@ function getUserPortalAccessInfo(userId: number): PortalAccessInfo[] {
 }
 
 /**
- * Escape a string for use in SQL LIKE pattern (prevent SQL injection via LIKE).
- */
-function escapeLikeValue(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-/**
  * Build a SQL WHERE condition that filters tasks based on user's access permissions.
  *
  * Logic per portal:
@@ -76,54 +68,69 @@ function escapeLikeValue(value: string): string {
  * - can_see_creator: tasks.creator_id = bitrixUserId
  * - Conditions are OR'd within a portal
  *
- * Returns a raw SQL fragment or null if user has no access.
+ * Returns a parameterized SQL fragment or null if user has no access.
  */
-export function buildTaskAccessFilter(userId: number): ReturnType<typeof sql> | null {
+export function buildTaskAccessFilter(userId: number): SQL | null {
   const accessInfo = getUserPortalAccessInfo(userId);
 
   if (accessInfo.length === 0) {
     return null; // No access to any portal
   }
 
-  const portalConditions: string[] = [];
+  const portalConditions: SQL[] = [];
 
   for (const info of accessInfo) {
-    const conditions: string[] = [];
+    const conditions: SQL[] = [];
 
     if (info.canSeeAll) {
       // User can see all tasks for this portal
-      conditions.push(`tasks.portal_id = ${info.portalId}`);
+      conditions.push(eq(tasks.portalId, info.portalId));
     } else if (info.bitrixUserId) {
-      const buid = escapeLikeValue(info.bitrixUserId);
+      const buid = info.bitrixUserId;
 
       if (info.canSeeResponsible) {
         conditions.push(
-          `(tasks.portal_id = ${info.portalId} AND tasks.responsible_id = '${buid}')`
+          and(
+            eq(tasks.portalId, info.portalId),
+            eq(tasks.responsibleId, buid)
+          )!
         );
       }
       if (info.canSeeAccomplice) {
         // accomplices is a JSON array stored as TEXT, e.g. '["1","2","3"]'
-        // Use LIKE to check if bitrixUserId is in the array
+        // Use parameterized LIKE to check if bitrixUserId is in the array
+        const pattern = `%"${buid}"%`;
         conditions.push(
-          `(tasks.portal_id = ${info.portalId} AND tasks.accomplices LIKE '%"${buid}"%')`
+          and(
+            eq(tasks.portalId, info.portalId),
+            like(tasks.accomplices, pattern)
+          )!
         );
       }
       if (info.canSeeAuditor) {
         // auditors is a JSON array stored as TEXT
+        const pattern = `%"${buid}"%`;
         conditions.push(
-          `(tasks.portal_id = ${info.portalId} AND tasks.auditors LIKE '%"${buid}"%')`
+          and(
+            eq(tasks.portalId, info.portalId),
+            like(tasks.auditors, pattern)
+          )!
         );
       }
       if (info.canSeeCreator) {
         conditions.push(
-          `(tasks.portal_id = ${info.portalId} AND tasks.creator_id = '${buid}')`
+          and(
+            eq(tasks.portalId, info.portalId),
+            eq(tasks.creatorId, buid)
+          )!
         );
       }
     }
     // If no bitrixUserId and not can_see_all, user sees nothing for this portal
 
     if (conditions.length > 0) {
-      portalConditions.push(`(${conditions.join(' OR ')})`);
+      const combined = conditions.length === 1 ? conditions[0] : or(...conditions)!;
+      portalConditions.push(combined);
     }
   }
 
@@ -132,8 +139,9 @@ export function buildTaskAccessFilter(userId: number): ReturnType<typeof sql> | 
   }
 
   // Combine all portal conditions with OR
-  const combinedSql = portalConditions.join(' OR ');
-  return sql.raw(`(${combinedSql})`);
+  return portalConditions.length === 1
+    ? portalConditions[0]
+    : or(...portalConditions)!;
 }
 
 /**
@@ -152,7 +160,7 @@ export function getAccessiblePortalIds(userId: number): number[] {
 export function buildPortalTaskFilter(
   userId: number,
   portalId: number
-): ReturnType<typeof sql> | null {
+): SQL | null {
   const row = db
     .select({
       canSeeAll: userPortalAccess.canSeeAll,
@@ -183,32 +191,35 @@ export function buildPortalTaskFilter(
   }
 
   if (row.canSeeAll) {
-    return sql.raw(`tasks.portal_id = ${portalId}`);
+    return eq(tasks.portalId, portalId);
   }
 
   if (!row.bitrixUserId) {
     return null; // No mapping, can't see tasks (unless can_see_all)
   }
 
-  const buid = escapeLikeValue(row.bitrixUserId);
-  const conditions: string[] = [];
+  const buid = row.bitrixUserId;
+  const conditions: SQL[] = [];
 
   if (row.canSeeResponsible) {
-    conditions.push(`tasks.responsible_id = '${buid}'`);
+    conditions.push(eq(tasks.responsibleId, buid));
   }
   if (row.canSeeAccomplice) {
-    conditions.push(`tasks.accomplices LIKE '%"${buid}"%'`);
+    const pattern = `%"${buid}"%`;
+    conditions.push(like(tasks.accomplices, pattern));
   }
   if (row.canSeeAuditor) {
-    conditions.push(`tasks.auditors LIKE '%"${buid}"%'`);
+    const pattern = `%"${buid}"%`;
+    conditions.push(like(tasks.auditors, pattern));
   }
   if (row.canSeeCreator) {
-    conditions.push(`tasks.creator_id = '${buid}'`);
+    conditions.push(eq(tasks.creatorId, buid));
   }
 
   if (conditions.length === 0) {
     return null;
   }
 
-  return sql.raw(`(tasks.portal_id = ${portalId} AND (${conditions.join(' OR ')}))`);
+  const roleFilter = conditions.length === 1 ? conditions[0] : or(...conditions)!;
+  return and(eq(tasks.portalId, portalId), roleFilter)!;
 }

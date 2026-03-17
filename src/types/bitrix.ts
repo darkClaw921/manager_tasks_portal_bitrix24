@@ -56,8 +56,16 @@ export interface BitrixComment {
   ID: string;
   AUTHOR_ID: string;
   AUTHOR_NAME: string;
+  AUTHOR_PHOTO?: string;
   POST_MESSAGE: string;
   POST_DATE: string;
+  ATTACHED_OBJECTS?: Record<string, {
+    NAME: string;
+    FILE_ID: number;
+    SIZE: number;
+    DOWNLOAD_URL: string;
+    CONTENT_TYPE?: string;
+  }>;
 }
 
 /** Bitrix24 checklist item */
@@ -67,6 +75,7 @@ export interface BitrixChecklistItem {
   TITLE: string;
   SORT_INDEX: string;
   IS_COMPLETE: string;
+  PARENT_ID: string;
 }
 
 /** Bitrix24 file */

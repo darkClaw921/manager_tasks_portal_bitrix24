@@ -189,14 +189,14 @@ function ProfileTab({ user, onSaved }: { user: UserDetail; onSaved: () => void }
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.message || 'Failed to save');
+        throw new Error(data.message || 'Не удалось сохранить');
       }
 
       setMessage({ type: 'success', text: 'Profile updated successfully' });
       setTimeout(() => setMessage(null), 4000);
       onSaved();
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to save' });
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Не удалось сохранить' });
     } finally {
       setSaving(false);
     }
@@ -258,7 +258,7 @@ function ProfileTab({ user, onSaved }: { user: UserDetail; onSaved: () => void }
 
         <div className="pt-2">
           <Button type="submit" variant="primary" loading={saving}>
-            Save Changes
+            Сохранить изменения
           </Button>
         </div>
       </form>
@@ -299,14 +299,14 @@ function NotificationsTab({ user, onSaved }: { user: UserDetail; onSaved: () => 
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.message || 'Failed to save');
+        throw new Error(data.message || 'Не удалось сохранить');
       }
 
-      setMessage({ type: 'success', text: 'Notification settings saved' });
+      setMessage({ type: 'success', text: 'Настройки уведомлений сохранены' });
       setTimeout(() => setMessage(null), 4000);
       onSaved();
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to save' });
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Не удалось сохранить' });
     } finally {
       setSaving(false);
     }
@@ -321,13 +321,13 @@ function NotificationsTab({ user, onSaved }: { user: UserDetail; onSaved: () => 
   };
 
   const notifOptions = [
-    { key: 'notifyTaskAdd' as const, label: 'New tasks', description: 'When a new task is assigned to you' },
-    { key: 'notifyTaskUpdate' as const, label: 'Task updates', description: 'When a task you follow is updated' },
-    { key: 'notifyTaskDelete' as const, label: 'Task deletions', description: 'When a task you follow is deleted' },
-    { key: 'notifyCommentAdd' as const, label: 'New comments', description: 'When someone comments on your task' },
-    { key: 'notifyMention' as const, label: 'Mentions', description: 'When you are mentioned in a comment' },
-    { key: 'notifyOverdue' as const, label: 'Overdue tasks', description: 'When your task passes its deadline' },
-    { key: 'notifyDigest' as const, label: 'Daily digest', description: 'Daily summary of your tasks' },
+    { key: 'notifyTaskAdd' as const, label: 'Новые задачи', description: 'Когда вам назначена новая задача' },
+    { key: 'notifyTaskUpdate' as const, label: 'Обновления задач', description: 'Когда обновляется задача, за которой вы следите' },
+    { key: 'notifyTaskDelete' as const, label: 'Удаление задач', description: 'Когда удаляется задача, за которой вы следите' },
+    { key: 'notifyCommentAdd' as const, label: 'Новые комментарии', description: 'Когда кто-то комментирует вашу задачу' },
+    { key: 'notifyMention' as const, label: 'Упоминания', description: 'Когда вас упоминают в комментарии' },
+    { key: 'notifyOverdue' as const, label: 'Просроченные задачи', description: 'Когда задача просрочена' },
+    { key: 'notifyDigest' as const, label: 'Ежедневная сводка', description: 'Ежедневная сводка по вашим задачам' },
   ];
 
   return (
@@ -345,18 +345,18 @@ function NotificationsTab({ user, onSaved }: { user: UserDetail; onSaved: () => 
 
       {/* Push notifications */}
       <div className="bg-surface rounded-card border border-border p-6">
-        <h2 className="text-h3 font-semibold mb-4">Push Notifications</h2>
+        <h2 className="text-h3 font-semibold mb-4">Push-уведомления</h2>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-small font-medium text-foreground">Browser Push Notifications</p>
+            <p className="text-small font-medium text-foreground">Push-уведомления в браузере</p>
             <p className="text-xs text-text-secondary mt-0.5">
               {!push.isSupported
-                ? 'Push notifications are not supported in this browser'
+                ? 'Push-уведомления не поддерживаются в этом браузере'
                 : push.permission === 'denied'
-                  ? 'Notifications are blocked. Enable them in browser settings.'
+                  ? 'Уведомления заблокированы. Включите их в настройках браузера.'
                   : push.isSubscribed
-                    ? 'You are receiving push notifications'
-                    : 'Enable to receive real-time updates'}
+                    ? 'Вы получаете push-уведомления'
+                    : 'Включите для получения уведомлений в реальном времени'}
             </p>
           </div>
           <Button
@@ -366,14 +366,14 @@ function NotificationsTab({ user, onSaved }: { user: UserDetail; onSaved: () => 
             loading={push.isLoading}
             disabled={!push.isSupported || push.permission === 'denied'}
           >
-            {push.isSubscribed ? 'Disable' : 'Enable'}
+            {push.isSubscribed ? 'Отключить' : 'Включить'}
           </Button>
         </div>
       </div>
 
       {/* Notification preferences */}
       <div className="bg-surface rounded-card border border-border p-6">
-        <h2 className="text-h3 font-semibold mb-4">Notification Types</h2>
+        <h2 className="text-h3 font-semibold mb-4">Типы уведомлений</h2>
         <div className="divide-y divide-border">
           {notifOptions.map((opt) => (
             <div key={opt.key} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
@@ -405,11 +405,11 @@ function NotificationsTab({ user, onSaved }: { user: UserDetail; onSaved: () => 
 
       {/* Digest time */}
       <div className="bg-surface rounded-card border border-border p-6">
-        <h2 className="text-h3 font-semibold mb-4">Digest Schedule</h2>
+        <h2 className="text-h3 font-semibold mb-4">Расписание сводки</h2>
         <div className="flex items-center gap-4">
           <div className="flex-1 max-w-xs">
             <label className="block text-small font-medium text-foreground mb-1">
-              Delivery time
+              Время доставки
             </label>
             <input
               type="time"
@@ -418,7 +418,7 @@ function NotificationsTab({ user, onSaved }: { user: UserDetail; onSaved: () => 
               className="w-full px-3 py-2 rounded-input border border-border text-small text-foreground bg-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
             />
             <p className="text-xs text-text-secondary mt-1">
-              Daily digest will be delivered at this time in your timezone
+              Ежедневная сводка будет доставлена в это время по вашему часовому поясу
             </p>
           </div>
         </div>
@@ -426,7 +426,7 @@ function NotificationsTab({ user, onSaved }: { user: UserDetail; onSaved: () => 
 
       <div className="pt-2">
         <Button variant="primary" onClick={handleSave} loading={saving}>
-          Save Notification Settings
+          Сохранить настройки уведомлений
         </Button>
       </div>
     </div>
@@ -444,20 +444,20 @@ function PortalsTab() {
   const handleUpdate = async (id: number, data: { name?: string; color?: string }) => {
     try {
       await updatePortal.mutateAsync({ id, ...data });
-      setMessage({ type: 'success', text: 'Portal updated' });
+      setMessage({ type: 'success', text: 'Портал обновлён' });
       setTimeout(() => setMessage(null), 3000);
     } catch {
-      setMessage({ type: 'error', text: 'Failed to update portal' });
+      setMessage({ type: 'error', text: 'Не удалось обновить портал' });
     }
   };
 
   const handleDisconnect = async (id: number) => {
     try {
       await disconnectPortal.mutateAsync(id);
-      setMessage({ type: 'success', text: 'Portal disconnected' });
+      setMessage({ type: 'success', text: 'Портал отключён' });
       setTimeout(() => setMessage(null), 3000);
     } catch {
-      setMessage({ type: 'error', text: 'Failed to disconnect portal' });
+      setMessage({ type: 'error', text: 'Не удалось отключить портал' });
     }
   };
 

@@ -55,6 +55,8 @@ function initializeTables() {
       name TEXT NOT NULL,
       color TEXT NOT NULL DEFAULT '#2563EB',
       member_id TEXT NOT NULL,
+      client_id TEXT NOT NULL DEFAULT '',
+      client_secret TEXT NOT NULL DEFAULT '',
       client_endpoint TEXT NOT NULL,
       access_token TEXT NOT NULL,
       refresh_token TEXT NOT NULL,
@@ -240,11 +242,49 @@ function initializeTables() {
 // Run initialization
 initializeTables();
 
+// Migration: add author_photo column to task_comments if missing
+try {
+  sqlite.exec(`ALTER TABLE task_comments ADD COLUMN author_photo TEXT`);
+} catch {
+  // Column already exists
+}
+
+// Migration: add responsible_photo and creator_photo columns to tasks if missing
+try {
+  sqlite.exec(`ALTER TABLE tasks ADD COLUMN responsible_photo TEXT`);
+} catch {
+  // Column already exists
+}
+try {
+  sqlite.exec(`ALTER TABLE tasks ADD COLUMN creator_photo TEXT`);
+} catch {
+  // Column already exists
+}
+
 // Migration: add exclude_from_ai column to tasks if missing
 try {
   sqlite.exec(`ALTER TABLE tasks ADD COLUMN exclude_from_ai INTEGER NOT NULL DEFAULT 0`);
 } catch {
   // Column already exists — ignore
+}
+
+// Migration: add client_id and client_secret columns to portals if missing
+try {
+  sqlite.exec(`ALTER TABLE portals ADD COLUMN client_id TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists — ignore
+}
+try {
+  sqlite.exec(`ALTER TABLE portals ADD COLUMN client_secret TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // Column already exists — ignore
+}
+
+// Migration: add attached_files column to task_comments if missing
+try {
+  sqlite.exec(`ALTER TABLE task_comments ADD COLUMN attached_files TEXT`);
+} catch {
+  // Column already exists
 }
 
 // Seed admin user (async, runs in background on first load)

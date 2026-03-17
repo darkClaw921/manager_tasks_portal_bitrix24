@@ -1,26 +1,30 @@
 import { SignJWT, jwtVerify } from 'jose';
 import type { BitrixTokenResponse } from '@/types';
+import { getJwtSecret } from '@/lib/auth/jwt';
 
-const BITRIX_CLIENT_ID = process.env.BITRIX_CLIENT_ID || '';
-const BITRIX_CLIENT_SECRET = process.env.BITRIX_CLIENT_SECRET || '';
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 const BITRIX_OAUTH_URL = 'https://oauth.bitrix.info/oauth/token/';
 
-/** Secret key for signing/verifying OAuth state parameter */
-const STATE_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'default-dev-secret-change-in-production'
-);
+/** Secret key for signing/verifying OAuth state parameter (uses shared JWT secret) */
+const STATE_SECRET = getJwtSecret();
 
 /**
  * Generate Bitrix24 OAuth authorization URL.
  *
  * @param domain - Portal domain (e.g., 'company.bitrix24.ru')
  * @param userId - Current authenticated user ID to embed in state
+ * @param clientId - Bitrix24 app client ID for this portal
+ * @param clientSecret - Bitrix24 app client secret for this portal
  * @returns Full authorization URL to redirect user to
  */
-export async function getAuthUrl(domain: string, userId: number): Promise<string> {
-  // Create signed state with userId for CSRF protection
-  const state = await new SignJWT({ userId })
+export async function getAuthUrl(
+  domain: string,
+  userId: number,
+  clientId: string,
+  clientSecret: string,
+): Promise<string> {
+  // Create signed state with userId + credentials for CSRF protection
+  const state = await new SignJWT({ userId, clientId, clientSecret })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('10m') // State valid for 10 minutes
@@ -29,7 +33,7 @@ export async function getAuthUrl(domain: string, userId: number): Promise<string
   const redirectUri = `${APP_URL}/api/oauth/callback`;
 
   const params = new URLSearchParams({
-    client_id: BITRIX_CLIENT_ID,
+    client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
     state,
@@ -47,12 +51,18 @@ export async function getAuthUrl(domain: string, userId: number): Promise<string
  * Verify and decode the OAuth state parameter.
  *
  * @param state - The state string from the callback
- * @returns The userId embedded in the state, or null if invalid
+ * @returns Object with userId, clientId, clientSecret or null if invalid
  */
-export async function verifyOAuthState(state: string): Promise<number | null> {
+export async function verifyOAuthState(
+  state: string,
+): Promise<{ userId: number; clientId: string; clientSecret: string } | null> {
   try {
     const { payload } = await jwtVerify(state, STATE_SECRET);
-    return payload.userId as number;
+    const userId = payload.userId as number;
+    const clientId = payload.clientId as string;
+    const clientSecret = payload.clientSecret as string;
+    if (!userId || !clientId || !clientSecret) return null;
+    return { userId, clientId, clientSecret };
   } catch {
     return null;
   }
@@ -62,15 +72,21 @@ export async function verifyOAuthState(state: string): Promise<number | null> {
  * Exchange an authorization code for access and refresh tokens.
  *
  * @param code - Authorization code from Bitrix24 callback
+ * @param clientId - Bitrix24 app client ID
+ * @param clientSecret - Bitrix24 app client secret
  * @returns Token response with access_token, refresh_token, etc.
  */
-export async function exchangeCode(code: string): Promise<BitrixTokenResponse> {
+export async function exchangeCode(
+  code: string,
+  clientId: string,
+  clientSecret: string,
+): Promise<BitrixTokenResponse> {
   const redirectUri = `${APP_URL}/api/oauth/callback`;
 
   const params = new URLSearchParams({
     grant_type: 'authorization_code',
-    client_id: BITRIX_CLIENT_ID,
-    client_secret: BITRIX_CLIENT_SECRET,
+    client_id: clientId,
+    client_secret: clientSecret,
     code,
     redirect_uri: redirectUri,
   });
@@ -80,8 +96,9 @@ export async function exchangeCode(code: string): Promise<BitrixTokenResponse> {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Token exchange failed: ${response.status} ${errorText}`);
+    // Do not include full error body in thrown error — it may contain tokens in URL params
+    console.error(`[oauth] Token exchange failed: status ${response.status}`);
+    throw new Error(`Token exchange failed: ${response.status}`);
   }
 
   const data: BitrixTokenResponse = await response.json();

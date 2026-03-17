@@ -5,6 +5,25 @@ import { createBitrix24Client } from './client';
 import type { BitrixStage } from '@/types';
 
 /**
+ * Convert a key to UPPER_SNAKE_CASE.
+ */
+function toUpperSnakeCase(str: string): string {
+  if (/^[A-Z0-9_]+$/.test(str)) return str;
+  return str.replace(/([A-Z])/g, '_$1').toUpperCase();
+}
+
+/**
+ * Normalize stage keys to UPPER_SNAKE_CASE.
+ */
+function normalizeStageKeys(obj: Record<string, unknown>): BitrixStage {
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    normalized[toUpperSnakeCase(key)] = value;
+  }
+  return normalized as unknown as BitrixStage;
+}
+
+/**
  * Fetch stages from a Bitrix24 portal and save/update them in the database.
  * Fetches "My Plan" stages (entityId=0) by default.
  *
@@ -27,7 +46,8 @@ export async function fetchStages(
       return;
     }
 
-    const stages = Object.values(response.result);
+    const rawStages = Object.values(response.result);
+    const stages = rawStages.map((s) => normalizeStageKeys(s as unknown as Record<string, unknown>));
 
     console.log(`[stages] Fetched ${stages.length} stages for portal ${portalId}, entityId=${entityId}`);
 

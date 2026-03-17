@@ -4,7 +4,8 @@ import { useState, type FormEvent } from 'react';
 import { useAddComment } from '@/hooks/useTask';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import type { TaskComment } from '@/types';
+import type { TaskComment, CommentFile } from '@/types';
+import { sanitizeHtml } from '@/lib/utils/sanitize';
 
 export interface CommentsProps {
   taskId: number;
@@ -22,6 +23,50 @@ function formatDate(dateStr: string | null): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function PaperclipIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 shrink-0">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m18.375 12.739-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13" />
+    </svg>
+  );
+}
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function CommentFiles({ files }: { files: CommentFile[] }) {
+  return (
+    <div className="mt-2 space-y-1">
+      {files.map((file) => (
+        <div key={file.id} className="flex items-center gap-2 text-small">
+          <PaperclipIcon />
+          {file.downloadUrl ? (
+            <a
+              href={file.downloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline truncate"
+            >
+              {file.name}
+            </a>
+          ) : (
+            <span className="text-text-secondary truncate">{file.name}</span>
+          )}
+          {file.size != null && file.size > 0 && (
+            <span className="text-xs text-text-muted shrink-0">
+              {formatFileSize(file.size)}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function SendIcon() {
@@ -73,6 +118,7 @@ export function Comments({ taskId, comments }: CommentsProps) {
             >
               <Avatar
                 name={comment.authorName || 'Unknown'}
+                src={comment.authorPhoto}
                 size="sm"
                 className="shrink-0 mt-0.5"
               />
@@ -85,12 +131,17 @@ export function Comments({ taskId, comments }: CommentsProps) {
                     {formatDate(comment.postDate)}
                   </span>
                 </div>
-                <div
-                  className="text-body text-text-secondary break-words"
-                  dangerouslySetInnerHTML={{
-                    __html: comment.postMessage || '',
-                  }}
-                />
+                {comment.postMessage && (
+                  <div
+                    className="text-body text-text-secondary break-words"
+                    dangerouslySetInnerHTML={{
+                      __html: sanitizeHtml(comment.postMessage),
+                    }}
+                  />
+                )}
+                {comment.attachedFiles && comment.attachedFiles.length > 0 && (
+                  <CommentFiles files={comment.attachedFiles} />
+                )}
               </div>
             </div>
           ))}

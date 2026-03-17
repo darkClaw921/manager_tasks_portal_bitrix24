@@ -12,6 +12,7 @@ import { Comments } from './Comments';
 import { Checklist } from './Checklist';
 import { Files } from './Files';
 import { cn } from '@/lib/utils';
+import { sanitizeHtml } from '@/lib/utils/sanitize';
 
 export interface TaskDetailProps {
   taskId: number;
@@ -190,7 +191,7 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
               <div
                 className="prose prose-sm max-w-none text-body text-text-secondary rounded-card bg-background p-4 [&_a]:text-primary [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_br]:block"
                 dangerouslySetInnerHTML={{
-                  __html: task.descriptionHtml || task.description || '',
+                  __html: sanitizeHtml(task.descriptionHtml || task.description || ''),
                 }}
               />
             </div>
@@ -201,9 +202,9 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
             <div className="space-y-2">
               <h3 className="text-h3 font-semibold text-foreground">Теги</h3>
               <div className="flex flex-wrap gap-2">
-                {tags.map((tag: string, i: number) => (
+                {tags.map((tag: string | { id?: number; title?: string }, i: number) => (
                   <Badge key={i} variant="default" size="sm">
-                    {tag}
+                    {typeof tag === 'string' ? tag : tag.title || ''}
                   </Badge>
                 ))}
               </div>
@@ -256,7 +257,7 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
               <p className="text-xs text-text-muted mb-1">Ответственный</p>
               <div className="flex items-center gap-2">
                 {task.responsibleName && (
-                  <Avatar name={task.responsibleName} size="sm" />
+                  <Avatar name={task.responsibleName} src={task.responsiblePhoto} size="sm" />
                 )}
                 <span className="text-body text-foreground">
                   {task.responsibleName || 'Не назначен'}
@@ -269,7 +270,7 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
               <p className="text-xs text-text-muted mb-1">Постановщик</p>
               <div className="flex items-center gap-2">
                 {task.creatorName && (
-                  <Avatar name={task.creatorName} size="sm" />
+                  <Avatar name={task.creatorName} src={task.creatorPhoto} size="sm" />
                 )}
                 <span className="text-body text-foreground">
                   {task.creatorName || 'Неизвестен'}

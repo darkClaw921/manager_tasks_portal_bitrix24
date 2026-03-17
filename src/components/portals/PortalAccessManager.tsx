@@ -106,7 +106,7 @@ function AddUserForm({
 
   const handleSubmit = async () => {
     if (!selectedUserId) {
-      setError('Select a user');
+      setError('Выберите пользователя');
       return;
     }
 
@@ -133,7 +133,7 @@ function AddUserForm({
       setCanSeeCreator(false);
       setCanSeeAll(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to grant access');
+      setError(err instanceof Error ? err.message : 'Не удалось предоставить доступ');
     } finally {
       setLoading(false);
     }
@@ -142,14 +142,14 @@ function AddUserForm({
   if (availableUsers.length === 0) {
     return (
       <div className="text-small text-text-muted py-2">
-        All users already have access to this portal
+        Все пользователи уже имеют доступ к этому порталу
       </div>
     );
   }
 
   return (
     <div className="space-y-3 p-4 rounded-input border border-border bg-background">
-      <h4 className="text-small font-medium text-foreground">Add user</h4>
+      <h4 className="text-small font-medium text-foreground">Добавить пользователя</h4>
 
       {/* User select */}
       <select
@@ -160,7 +160,7 @@ function AddUserForm({
         }}
         className="w-full rounded-input border border-border px-3 py-2 text-body text-foreground bg-surface outline-none focus:border-primary"
       >
-        <option value="">Select user...</option>
+        <option value="">Выберите пользователя...</option>
         {availableUsers.map((u) => (
           <option key={u.id} value={u.id}>
             {u.firstName} {u.lastName} ({u.email})
@@ -170,46 +170,46 @@ function AddUserForm({
 
       {/* Role select */}
       <div className="flex items-center gap-3">
-        <span className="text-small text-text-secondary">Role:</span>
+        <span className="text-small text-text-secondary">Роль:</span>
         <select
           value={role}
           onChange={(e) => setRole(e.target.value as 'admin' | 'viewer')}
           className="rounded-input border border-border px-3 py-1.5 text-small text-foreground bg-surface outline-none focus:border-primary"
         >
-          <option value="viewer">Viewer</option>
-          <option value="admin">Admin</option>
+          <option value="viewer">Наблюдатель</option>
+          <option value="admin">Администратор</option>
         </select>
       </div>
 
       {/* Permissions */}
       <div className="space-y-2">
-        <span className="text-small font-medium text-text-secondary">Task visibility:</span>
+        <span className="text-small font-medium text-text-secondary">Видимость задач:</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <PermissionCheckbox
-            label="All tasks"
+            label="Все задачи"
             checked={canSeeAll}
             onChange={(v) => setCanSeeAll(v)}
           />
           <PermissionCheckbox
-            label="As responsible"
+            label="Как ответственный"
             checked={canSeeResponsible}
             onChange={(v) => setCanSeeResponsible(v)}
             disabled={canSeeAll}
           />
           <PermissionCheckbox
-            label="As accomplice"
+            label="Как соисполнитель"
             checked={canSeeAccomplice}
             onChange={(v) => setCanSeeAccomplice(v)}
             disabled={canSeeAll}
           />
           <PermissionCheckbox
-            label="As auditor"
+            label="Как наблюдатель"
             checked={canSeeAuditor}
             onChange={(v) => setCanSeeAuditor(v)}
             disabled={canSeeAll}
           />
           <PermissionCheckbox
-            label="As creator"
+            label="Как постановщик"
             checked={canSeeCreator}
             onChange={(v) => setCanSeeCreator(v)}
             disabled={canSeeAll}
@@ -223,7 +223,7 @@ function AddUserForm({
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
-        Grant access
+        Предоставить доступ
       </Button>
     </div>
   );
@@ -313,7 +313,7 @@ function UserRow({
             <button
               onClick={() => setEditing(true)}
               className="p-1.5 rounded-input text-text-muted hover:text-foreground hover:bg-background transition-colors"
-              title="Edit permissions"
+              title="Редактировать права"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
                 <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -323,7 +323,7 @@ function UserRow({
               onClick={handleRevoke}
               disabled={revoking}
               className="p-1.5 rounded-input text-text-muted hover:text-danger hover:bg-danger-light transition-colors disabled:opacity-50"
-              title="Revoke access"
+              title="Отозвать доступ"
             >
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -337,22 +337,22 @@ function UserRow({
       {!editing && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {user.canSeeAll && (
-            <Badge variant="success" size="sm">All tasks</Badge>
+            <Badge variant="success" size="sm">Все задачи</Badge>
           )}
           {!user.canSeeAll && user.canSeeResponsible && (
-            <Badge variant="default" size="sm">Responsible</Badge>
+            <Badge variant="default" size="sm">Ответственный</Badge>
           )}
           {!user.canSeeAll && user.canSeeAccomplice && (
-            <Badge variant="default" size="sm">Accomplice</Badge>
+            <Badge variant="default" size="sm">Соисполнитель</Badge>
           )}
           {!user.canSeeAll && user.canSeeAuditor && (
-            <Badge variant="default" size="sm">Auditor</Badge>
+            <Badge variant="default" size="sm">Наблюдатель</Badge>
           )}
           {!user.canSeeAll && user.canSeeCreator && (
-            <Badge variant="default" size="sm">Creator</Badge>
+            <Badge variant="default" size="sm">Постановщик</Badge>
           )}
           {!user.canSeeAll && !user.canSeeResponsible && !user.canSeeAccomplice && !user.canSeeAuditor && !user.canSeeCreator && (
-            <Badge variant="warning" size="sm">No task access</Badge>
+            <Badge variant="warning" size="sm">Нет доступа к задачам</Badge>
           )}
         </div>
       )}
@@ -361,45 +361,45 @@ function UserRow({
       {editing && (
         <div className="mt-3 space-y-3 pt-3 border-t border-border">
           <div className="flex items-center gap-3">
-            <span className="text-small text-text-secondary">Role:</span>
+            <span className="text-small text-text-secondary">Роль:</span>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as 'admin' | 'viewer')}
               className="rounded-input border border-border px-3 py-1.5 text-small text-foreground bg-surface outline-none focus:border-primary"
             >
-              <option value="viewer">Viewer</option>
-              <option value="admin">Admin</option>
+              <option value="viewer">Наблюдатель</option>
+              <option value="admin">Администратор</option>
             </select>
           </div>
 
           <div className="space-y-2">
-            <span className="text-small font-medium text-text-secondary">Task visibility:</span>
+            <span className="text-small font-medium text-text-secondary">Видимость задач:</span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <PermissionCheckbox
-                label="All tasks"
+                label="Все задачи"
                 checked={canSeeAll}
                 onChange={(v) => setCanSeeAll(v)}
               />
               <PermissionCheckbox
-                label="As responsible"
+                label="Как ответственный"
                 checked={canSeeResponsible}
                 onChange={(v) => setCanSeeResponsible(v)}
                 disabled={canSeeAll}
               />
               <PermissionCheckbox
-                label="As accomplice"
+                label="Как соисполнитель"
                 checked={canSeeAccomplice}
                 onChange={(v) => setCanSeeAccomplice(v)}
                 disabled={canSeeAll}
               />
               <PermissionCheckbox
-                label="As auditor"
+                label="Как наблюдатель"
                 checked={canSeeAuditor}
                 onChange={(v) => setCanSeeAuditor(v)}
                 disabled={canSeeAll}
               />
               <PermissionCheckbox
-                label="As creator"
+                label="Как постановщик"
                 checked={canSeeCreator}
                 onChange={(v) => setCanSeeCreator(v)}
                 disabled={canSeeAll}
@@ -409,10 +409,10 @@ function UserRow({
 
           <div className="flex gap-2">
             <Button size="sm" onClick={handleSave} loading={saving}>
-              Save
+              Сохранить
             </Button>
             <Button size="sm" variant="ghost" onClick={handleCancel}>
-              Cancel
+              Отмена
             </Button>
           </div>
         </div>
@@ -439,7 +439,7 @@ export function PortalAccessManager({
   if (isLoading) {
     return (
       <div className="bg-surface rounded-card border border-border p-6">
-        <h3 className="text-h3 font-semibold mb-4">User Access</h3>
+        <h3 className="text-h3 font-semibold mb-4">Доступ пользователей</h3>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3 p-3 rounded-input border border-border animate-pulse">
@@ -458,7 +458,7 @@ export function PortalAccessManager({
   return (
     <div className="bg-surface rounded-card border border-border p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-h3 font-semibold">User Access</h3>
+        <h3 className="text-h3 font-semibold">Доступ пользователей</h3>
         <Badge variant="primary">{users.length}</Badge>
       </div>
 
@@ -473,7 +473,7 @@ export function PortalAccessManager({
       {/* Current users list */}
       {users.length === 0 ? (
         <div className="text-center py-6">
-          <p className="text-text-secondary text-small">No users assigned yet</p>
+          <p className="text-text-secondary text-small">Пользователи ещё не назначены</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -494,7 +494,7 @@ export function PortalAccessManager({
           <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
         </svg>
         <p className="text-xs text-primary">
-          Users need a Bitrix24 mapping to see filtered tasks. Without mapping, only &quot;All tasks&quot; permission will show tasks.
+          Для просмотра отфильтрованных задач пользователям необходима привязка к Bitrix24. Без привязки задачи будут видны только при разрешении &quot;Все задачи&quot;.
         </p>
       </div>
     </div>

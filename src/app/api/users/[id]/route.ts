@@ -4,6 +4,7 @@ import { users } from '@/lib/db/schema';
 import { eq, sql } from 'drizzle-orm';
 import { requireAuth, requireAdmin, isAuthError } from '@/lib/auth/guards';
 import { hashPassword } from '@/lib/auth/password';
+import { validatePassword } from '@/lib/auth/password-policy';
 
 /**
  * GET /api/users/[id]
@@ -171,9 +172,10 @@ export async function PATCH(
       }
       if (body.isAdmin !== undefined) updates.isAdmin = body.isAdmin;
       if (body.password) {
-        if (body.password.length < 6) {
+        const passwordCheck = validatePassword(body.password);
+        if (!passwordCheck.valid) {
           return NextResponse.json(
-            { error: 'Validation', message: 'Password must be at least 6 characters' },
+            { error: 'Validation', message: passwordCheck.message },
             { status: 400 }
           );
         }

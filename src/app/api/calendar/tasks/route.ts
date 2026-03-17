@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { tasks, portals } from '@/lib/db/schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, or, between, lte, gte, inArray, asc } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { buildTaskAccessFilter, buildPortalTaskFilter } from '@/lib/portals/task-filter';
 
@@ -66,20 +66,17 @@ export async function GET(request: NextRequest) {
     const conditions = [accessFilter];
 
     // Date range filter: task has any date field overlapping with [dateFrom, dateTo]
-    const dateRangeFilter = sql.raw(
-      `(` +
-        `(tasks.start_date_plan BETWEEN '${dateFrom}' AND '${dateTo}') OR ` +
-        `(tasks.end_date_plan BETWEEN '${dateFrom}' AND '${dateTo}') OR ` +
-        `(tasks.deadline BETWEEN '${dateFrom}' AND '${dateTo}') OR ` +
-        `(tasks.start_date_plan <= '${dateFrom}' AND tasks.end_date_plan >= '${dateTo}')` +
-      `)`
-    );
+    const dateRangeFilter = or(
+      between(tasks.startDatePlan, dateFrom, dateTo),
+      between(tasks.endDatePlan, dateFrom, dateTo),
+      between(tasks.deadline, dateFrom, dateTo),
+      and(lte(tasks.startDatePlan, dateFrom), gte(tasks.endDatePlan, dateTo))
+    )!;
     conditions.push(dateRangeFilter);
 
     // Responsible IDs filter
     if (responsibleIds && responsibleIds.length > 0) {
-      const escapedIds = responsibleIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
-      conditions.push(sql.raw(`tasks.responsible_id IN (${escapedIds})`));
+      conditions.push(inArray(tasks.responsibleId, responsibleIds));
     }
 
     const whereClause = and(...conditions);
@@ -98,8 +95,10 @@ export async function GET(request: NextRequest) {
         mark: tasks.mark,
         responsibleId: tasks.responsibleId,
         responsibleName: tasks.responsibleName,
+        responsiblePhoto: tasks.responsiblePhoto,
         creatorId: tasks.creatorId,
         creatorName: tasks.creatorName,
+        creatorPhoto: tasks.creatorPhoto,
         groupId: tasks.groupId,
         stageId: tasks.stageId,
         deadline: tasks.deadline,
@@ -123,7 +122,7 @@ export async function GET(request: NextRequest) {
       .from(tasks)
       .innerJoin(portals, eq(tasks.portalId, portals.id))
       .where(whereClause)
-      .orderBy(sql.raw(`tasks.deadline ASC`))
+      .orderBy(asc(tasks.deadline))
       .limit(500)
       .all();
 

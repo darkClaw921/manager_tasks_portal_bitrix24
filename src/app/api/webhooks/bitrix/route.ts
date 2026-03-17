@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { portals } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { decrypt } from '@/lib/crypto/encryption';
+import { webhookLimiter, rateLimitResponse } from '@/lib/security/rate-limiter';
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 /** Supported Bitrix24 webhook event types */
 const SUPPORTED_EVENTS = [
@@ -73,10 +77,10 @@ async function parseWebhookBody(request: NextRequest): Promise<Record<string, un
  * Note: Does not return userId — webhook handlers resolve recipients
  * themselves via resolveNotificationRecipients (multi-user model).
  */
-function findAndVerifyPortal(
+async function findAndVerifyPortal(
   memberId: string,
   applicationToken: string
-): { id: number; domain: string } | null {
+): Promise<{ id: number; domain: string } | null> {
   // Find all portals matching this member_id (should be one portal per memberId)
   const matchingPortals = db
     .select({
@@ -93,17 +97,26 @@ function findAndVerifyPortal(
     return null;
   }
 
-  // Find the first active portal with matching app_token
+  // Find the first active portal with matching app_token (decrypt before comparison)
   for (const portal of matchingPortals) {
-    if (portal.isActive && portal.appToken === applicationToken) {
-      return { id: portal.id, domain: portal.domain };
-    }
-  }
-
-  // If no token match found, try portal without token check (app_token may not be saved yet)
-  // This is a fallback - in production, app_token should always be verified
-  for (const portal of matchingPortals) {
-    if (portal.isActive && !portal.appToken) {
+    if (portal.isActive && portal.appToken) {
+      const decryptedAppToken = decrypt(portal.appToken);
+      if (decryptedAppToken === applicationToken) {
+        return { id: portal.id, domain: portal.domain };
+      }
+    } else if (portal.isActive && !portal.appToken && applicationToken) {
+      // Trust on first use: save application_token from first received event
+      const { encrypt } = await import('@/lib/crypto/encryption');
+      db.update(portals)
+        .set({
+          appToken: encrypt(applicationToken),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(portals.id, portal.id))
+        .run();
+      console.log(
+        `[webhook] Saved application_token for portal ${portal.id} (${portal.domain}) from first event`
+      );
       return { id: portal.id, domain: portal.domain };
     }
   }
@@ -127,6 +140,30 @@ async function processEvent(
 }
 
 /**
+ * GET /api/webhooks/bitrix
+ *
+ * Handles Bitrix24 OAuth callback redirect.
+ * Bitrix24 sends the OAuth callback (code, state, domain, member_id) as GET
+ * to the app's configured install URL. We forward to /api/oauth/callback.
+ */
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const code = searchParams.get('code');
+
+  if (code) {
+    // OAuth callback — forward all query params to the OAuth callback handler
+    const callbackUrl = new URL(`${APP_URL}/api/oauth/callback`);
+    callbackUrl.search = searchParams.toString();
+    return NextResponse.redirect(callbackUrl.toString());
+  }
+
+  return NextResponse.json(
+    { error: 'Bad Request', message: 'Missing parameters' },
+    { status: 400 }
+  );
+}
+
+/**
  * POST /api/webhooks/bitrix
  *
  * Receives webhook events from Bitrix24.
@@ -143,6 +180,48 @@ export async function POST(request: NextRequest) {
     const ts = String(body.ts || '');
 
     console.log(`[webhook] Received event: ${event}, ts: ${ts}, member_id: ${auth.member_id || 'unknown'}`);
+
+    // Handle ONAPPINSTALL — save application_token and complete installation
+    if (event === 'ONAPPINSTALL') {
+      const memberId = String(auth.member_id || body.member_id || '');
+      const applicationToken = String(auth.application_token || '');
+      const domain = String(auth.domain || '');
+
+      console.log(`[webhook] ONAPPINSTALL: member_id=${memberId}, has_app_token=${!!applicationToken}`);
+
+      if (memberId) {
+        const portal = db
+          .select({ id: portals.id })
+          .from(portals)
+          .where(eq(portals.memberId, memberId))
+          .get();
+
+        if (portal) {
+          const updates: Record<string, unknown> = {
+            updatedAt: new Date().toISOString(),
+          };
+          if (applicationToken) {
+            const { encrypt } = await import('@/lib/crypto/encryption');
+            updates.appToken = encrypt(applicationToken);
+          }
+          if (domain) {
+            updates.domain = domain;
+          }
+          db.update(portals).set(updates).where(eq(portals.id, portal.id)).run();
+          console.log(`[webhook] ONAPPINSTALL: updated portal ${portal.id}`);
+        }
+      }
+
+      return NextResponse.json({ status: 'ok' });
+    }
+
+    // Handle installation callback (no event field, flat body with member_id + AUTH_ID)
+    if (!event && (body.member_id || body.AUTH_ID || body.PLACEMENT)) {
+      console.log(`[webhook] Install callback received, redirecting to /api/install`);
+      const installUrl = new URL(`${APP_URL}/api/install`);
+      installUrl.search = new URL(request.url).search;
+      return NextResponse.redirect(installUrl.toString(), 307);
+    }
 
     // Validate event type
     if (!event || !isSupportedEvent(event)) {
@@ -163,8 +242,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Rate limit by member_id
+    const webhookRateCheck = webhookLimiter.consume(memberId);
+    if (!webhookRateCheck.allowed) {
+      console.warn(`[webhook] Rate limited member_id: ${memberId}`);
+      return rateLimitResponse(webhookRateCheck.retryAfterMs);
+    }
+
     // Find and verify portal
-    const portal = findAndVerifyPortal(memberId, applicationToken);
+    const portal = await findAndVerifyPortal(memberId, applicationToken);
 
     if (!portal) {
       // Check if it's a token mismatch vs unknown portal

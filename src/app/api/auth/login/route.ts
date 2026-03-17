@@ -4,9 +4,21 @@ import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { verifyPassword } from '@/lib/auth/password';
 import { signToken } from '@/lib/auth/jwt';
+import { loginLimiter, rateLimitResponse } from '@/lib/security/rate-limiter';
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limit by IP address
+    const ip =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      'unknown';
+
+    const rateCheck = loginLimiter.consume(ip);
+    if (!rateCheck.allowed) {
+      return rateLimitResponse(rateCheck.retryAfterMs, 'Слишком много попыток входа. Попробуйте позже.');
+    }
+
     const body = await request.json();
     const { email, password } = body;
 

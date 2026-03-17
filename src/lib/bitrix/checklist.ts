@@ -5,12 +5,32 @@ import { createBitrix24Client } from './client';
 import type { BitrixChecklistItem } from '@/types';
 
 /**
+ * Convert a key to UPPER_SNAKE_CASE.
+ */
+function toUpperSnakeCase(str: string): string {
+  if (/^[A-Z0-9_]+$/.test(str)) return str;
+  return str.replace(/([A-Z])/g, '_$1').toUpperCase();
+}
+
+/**
+ * Normalize keys to UPPER_SNAKE_CASE (Bitrix24 may return camelCase or UPPER_SNAKE_CASE).
+ */
+function normalizeKeys(obj: Record<string, unknown>): BitrixChecklistItem {
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    normalized[toUpperSnakeCase(key)] = value;
+  }
+  return normalized as unknown as BitrixChecklistItem;
+}
+
+/**
  * Map a Bitrix24 checklist item to local DB fields.
  */
 export function mapBitrixChecklistItemToLocal(
-  item: BitrixChecklistItem,
+  raw: BitrixChecklistItem,
   taskId: number
 ) {
+  const item = normalizeKeys(raw as unknown as Record<string, unknown>);
   return {
     taskId,
     bitrixItemId: parseInt(String(item.ID), 10),
@@ -38,7 +58,12 @@ export async function fetchChecklist(
       }
     );
 
-    return response.result || [];
+    const result = response.result;
+    // Bitrix24 may return object instead of array
+    if (result && !Array.isArray(result) && typeof result === 'object') {
+      return Object.values(result) as BitrixChecklistItem[];
+    }
+    return (result as BitrixChecklistItem[]) || [];
   } catch (error) {
     console.error(
       `[checklist] Failed to fetch checklist for task ${bitrixTaskId}, portal ${portalId}:`,
@@ -108,7 +133,29 @@ export async function syncChecklist(
 }
 
 /**
+ * Find the root checklist ID for a task.
+ * Returns the ID of the first root checklist (PARENT_ID=0), or null if none exists.
+ */
+async function findRootChecklistId(
+  portalId: number,
+  bitrixTaskId: number
+): Promise<number | null> {
+  const items = await fetchChecklist(portalId, bitrixTaskId);
+
+  for (const raw of items) {
+    const item = normalizeKeys(raw as unknown as Record<string, unknown>);
+    const parentId = parseInt(String(item.PARENT_ID), 10);
+    if (parentId === 0 || isNaN(parentId)) {
+      return parseInt(String(item.ID), 10);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Add a checklist item to a task on Bitrix24.
+ * Finds or creates a root checklist, then adds the item under it.
  * Returns the new item ID.
  */
 export async function addChecklistItem(
@@ -118,9 +165,22 @@ export async function addChecklistItem(
 ): Promise<number> {
   const client = createBitrix24Client(portalId);
 
+  // Find existing root checklist
+  let parentId = await findRootChecklistId(portalId, bitrixTaskId);
+
+  // If no root checklist exists, create one first
+  if (!parentId) {
+    const createResponse = await client.call<number>('task.checklistitem.add', {
+      TASKID: bitrixTaskId,
+      FIELDS: { TITLE: 'Чек-лист', PARENT_ID: 0 },
+    });
+    parentId = createResponse.result;
+  }
+
+  // Add the actual item under the root checklist
   const response = await client.call<number>('task.checklistitem.add', {
     TASKID: bitrixTaskId,
-    FIELDS: { TITLE: title },
+    FIELDS: { TITLE: title, PARENT_ID: parentId },
   });
 
   return response.result;

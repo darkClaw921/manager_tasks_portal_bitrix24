@@ -84,11 +84,25 @@ export async function POST(request: NextRequest) {
     if (isAuthError(auth)) return auth;
 
     const body = await request.json();
-    const { domain } = body;
+    const { domain, clientId, clientSecret } = body;
 
     if (!domain || typeof domain !== 'string') {
       return NextResponse.json(
         { error: 'Validation', message: 'Domain is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!clientId || typeof clientId !== 'string') {
+      return NextResponse.json(
+        { error: 'Validation', message: 'Client ID is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!clientSecret || typeof clientSecret !== 'string') {
+      return NextResponse.json(
+        { error: 'Validation', message: 'Client Secret is required' },
         { status: 400 }
       );
     }
@@ -106,8 +120,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate OAuth URL
-    const authUrl = await getAuthUrl(cleanDomain, auth.user.userId);
+    // Generate OAuth URL with per-portal credentials
+    const authUrl = await getAuthUrl(cleanDomain, auth.user.userId, clientId.trim(), clientSecret.trim());
 
     return NextResponse.json({
       data: { authUrl },

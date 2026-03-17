@@ -249,6 +249,15 @@ export function TeamDayView() {
     [],
   );
 
+  // Count total visible tasks across all members
+  const totalVisibleTasks = useMemo(() => {
+    let count = 0;
+    for (const memberTasks of tasksByMember.values()) {
+      count += memberTasks.length;
+    }
+    return count;
+  }, [tasksByMember]);
+
   // --- Render ---
 
   if (isLoading) {
@@ -264,15 +273,6 @@ export function TeamDayView() {
       />
     );
   }
-
-  // Count total visible tasks across all members
-  const totalVisibleTasks = useMemo(() => {
-    let count = 0;
-    for (const memberTasks of tasksByMember.values()) {
-      count += memberTasks.length;
-    }
-    return count;
-  }, [tasksByMember]);
 
   // Empty state: no team members (no Bitrix mappings configured)
   if (members.length === 0) {

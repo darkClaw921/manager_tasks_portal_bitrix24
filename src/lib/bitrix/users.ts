@@ -2,6 +2,25 @@ import { createBitrix24Client } from './client';
 import type { BitrixUser } from '@/types';
 
 /**
+ * Convert a key to UPPER_SNAKE_CASE.
+ */
+function toUpperSnakeCase(str: string): string {
+  if (/^[A-Z0-9_]+$/.test(str)) return str;
+  return str.replace(/([A-Z])/g, '_$1').toUpperCase();
+}
+
+/**
+ * Normalize user keys to UPPER_SNAKE_CASE.
+ */
+function normalizeUserKeys(obj: Record<string, unknown>): BitrixUser {
+  const normalized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    normalized[toUpperSnakeCase(key)] = value;
+  }
+  return normalized as unknown as BitrixUser;
+}
+
+/**
  * Fetch all users from a Bitrix24 portal with pagination.
  * Uses user.get REST API method, paginated by 50 per page.
  *
@@ -19,7 +38,8 @@ export async function fetchBitrixUsers(portalId: number): Promise<BitrixUser[]> 
       start,
     });
 
-    const pageUsers = response.result || [];
+    const rawUsers = response.result || [];
+    const pageUsers = rawUsers.map((u) => normalizeUserKeys(u as unknown as Record<string, unknown>));
     allUsers.push(...pageUsers);
 
     console.log(
@@ -55,5 +75,6 @@ export async function searchBitrixUsers(
     FILTER: { FIND: query },
   });
 
-  return response.result || [];
+  const rawUsers = response.result || [];
+  return rawUsers.map((u) => normalizeUserKeys(u as unknown as Record<string, unknown>));
 }

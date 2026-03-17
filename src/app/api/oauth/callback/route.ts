@@ -5,7 +5,10 @@ import { eq } from 'drizzle-orm';
 import { verifyOAuthState, exchangeCode } from '@/lib/bitrix/oauth';
 import { registerEventHandlers } from '@/lib/bitrix/events';
 import { fetchStages } from '@/lib/bitrix/stages';
+import { fullSync } from '@/lib/bitrix/sync';
 import { grantPortalAccess, hasPortalAccess } from '@/lib/portals/access';
+import { getBitrixUserIdForUser, createMapping } from '@/lib/portals/mappings';
+import { encrypt } from '@/lib/crypto/encryption';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
@@ -18,6 +21,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
  *
  * Uniqueness is by memberId only (one portal per Bitrix24 instance).
  * Auto-creates user_portal_access for the connecting admin.
+ * Per-portal client_id/client_secret are stored in the state JWT.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -39,18 +43,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Verify and decode state (contains userId)
-    const userId = await verifyOAuthState(state);
-    if (!userId) {
+    // Verify and decode state (contains userId, clientId, clientSecret)
+    const stateData = await verifyOAuthState(state);
+    if (!stateData) {
       return NextResponse.redirect(
         `${APP_URL}/portals?error=${encodeURIComponent('Invalid or expired state. Please try connecting again.')}`
       );
     }
 
-    // Exchange authorization code for tokens
+    const { userId, clientId, clientSecret } = stateData;
+
+    // Exchange authorization code for tokens using per-portal credentials
     let tokenData;
     try {
-      tokenData = await exchangeCode(code);
+      tokenData = await exchangeCode(code, clientId, clientSecret);
     } catch (error) {
       console.error('[oauth/callback] Token exchange error:', error);
       return NextResponse.redirect(
@@ -70,12 +76,14 @@ export async function GET(request: NextRequest) {
       .get();
 
     if (existingPortal) {
-      // Update existing portal with new tokens
+      // Update existing portal with new tokens and credentials (encrypted)
       db.update(portals)
         .set({
           domain,
-          accessToken: tokenData.access_token,
-          refreshToken: tokenData.refresh_token,
+          clientId: encrypt(clientId),
+          clientSecret: encrypt(clientSecret),
+          accessToken: encrypt(tokenData.access_token),
+          refreshToken: encrypt(tokenData.refresh_token),
           tokenExpiresAt,
           clientEndpoint,
           isActive: true,
@@ -95,6 +103,16 @@ export async function GET(request: NextRequest) {
         console.log(`[oauth/callback] Granted admin access to user ${userId} for portal ${existingPortal.id}`);
       }
 
+      // Auto-create Bitrix24 user mapping for connecting admin
+      if (tokenData.user_id && !getBitrixUserIdForUser(userId, existingPortal.id)) {
+        try {
+          createMapping(userId, existingPortal.id, String(tokenData.user_id));
+          console.log(`[oauth/callback] Created bitrix mapping for user ${userId} -> bitrix ${tokenData.user_id} on portal ${existingPortal.id}`);
+        } catch (err) {
+          console.warn(`[oauth/callback] Bitrix mapping already exists for portal ${existingPortal.id}:`, err);
+        }
+      }
+
       // Register event handlers and fetch stages in background (non-blocking)
       registerAndSync(existingPortal.id).catch((err) =>
         console.error(`[oauth/callback] Background sync error for portal ${existingPortal.id}:`, err)
@@ -105,7 +123,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Create new portal
+    // Create new portal (tokens and credentials encrypted)
     const result = db
       .insert(portals)
       .values({
@@ -113,9 +131,11 @@ export async function GET(request: NextRequest) {
         domain,
         name: domain.split('.')[0] || domain, // Use first part of domain as default name
         memberId,
+        clientId: encrypt(clientId),
+        clientSecret: encrypt(clientSecret),
         clientEndpoint,
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
+        accessToken: encrypt(tokenData.access_token),
+        refreshToken: encrypt(tokenData.refresh_token),
         tokenExpiresAt,
         createdAt: now,
         updatedAt: now,
@@ -138,6 +158,16 @@ export async function GET(request: NextRequest) {
       },
     });
     console.log(`[oauth/callback] Created admin access for user ${userId} on portal ${portalId}`);
+
+    // Auto-create Bitrix24 user mapping for connecting admin
+    if (tokenData.user_id) {
+      try {
+        createMapping(userId, portalId, String(tokenData.user_id));
+        console.log(`[oauth/callback] Created bitrix mapping for user ${userId} -> bitrix ${tokenData.user_id} on portal ${portalId}`);
+      } catch (err) {
+        console.warn(`[oauth/callback] Failed to create bitrix mapping for portal ${portalId}:`, err);
+      }
+    }
 
     // Register event handlers and fetch stages in background (non-blocking)
     registerAndSync(portalId).catch((err) =>
@@ -164,10 +194,10 @@ async function registerAndSync(portalId: number): Promise<void> {
   // 1. Register event handlers
   const appToken = await registerEventHandlers(portalId);
 
-  // Save app_token if received
+  // Save app_token if received (encrypted)
   if (appToken) {
     db.update(portals)
-      .set({ appToken, updatedAt: new Date().toISOString() })
+      .set({ appToken: encrypt(appToken), updatedAt: new Date().toISOString() })
       .where(eq(portals.id, portalId))
       .run();
     console.log(`[oauth/callback] Saved app_token for portal ${portalId}`);
@@ -175,4 +205,12 @@ async function registerAndSync(portalId: number): Promise<void> {
 
   // 2. Fetch and cache stages
   await fetchStages(portalId);
+
+  // 3. Full sync of tasks
+  try {
+    const result = await fullSync(portalId);
+    console.log(`[oauth/callback] Full sync completed for portal ${portalId}: ${result.tasksCount} tasks`);
+  } catch (err) {
+    console.error(`[oauth/callback] Full sync failed for portal ${portalId}:`, err);
+  }
 }

@@ -22,6 +22,8 @@ export async function registerEventHandlers(portalId: number): Promise<string | 
   const client = createBitrix24Client(portalId);
   const handlerUrl = `${APP_URL}/api/webhooks/bitrix`;
 
+  console.log(`[events] Registering handlers for portal ${portalId}, handler URL: ${handlerUrl}`);
+
   let appToken: string | null = null;
 
   // Use batch to register all events in a single request
@@ -34,6 +36,7 @@ export async function registerEventHandlers(portalId: number): Promise<string | 
         params: {
           event,
           handler: handlerUrl,
+          // event_type defaults to 'online' = POST to handler URL
         },
       };
     }
@@ -66,6 +69,7 @@ export async function registerEventHandlers(portalId: number): Promise<string | 
           await client.call('event.bind', {
             event,
             handler: handlerUrl,
+            // event_type defaults to 'online' = POST to handler URL
           });
         } catch (innerError) {
           console.error(`[events] Failed to bind ${event} for portal ${portalId}:`, innerError);
@@ -87,6 +91,20 @@ export async function registerEventHandlers(portalId: number): Promise<string | 
  *
  * @param portalId - The local portal ID
  */
+/**
+ * List currently registered event handlers on a Bitrix24 portal.
+ */
+export async function listEventHandlers(portalId: number): Promise<unknown[]> {
+  const client = createBitrix24Client(portalId);
+  try {
+    const response = await client.call<unknown[]>('event.get');
+    return response.result || [];
+  } catch (error) {
+    console.error(`[events] Failed to list events for portal ${portalId}:`, error);
+    return [];
+  }
+}
+
 export async function unregisterEventHandlers(portalId: number): Promise<void> {
   const client = createBitrix24Client(portalId);
   const handlerUrl = `${APP_URL}/api/webhooks/bitrix`;

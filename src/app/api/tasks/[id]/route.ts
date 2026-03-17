@@ -27,8 +27,10 @@ function getTaskWithOwnership(taskId: number, userId: number) {
       mark: tasks.mark,
       responsibleId: tasks.responsibleId,
       responsibleName: tasks.responsibleName,
+      responsiblePhoto: tasks.responsiblePhoto,
       creatorId: tasks.creatorId,
       creatorName: tasks.creatorName,
+      creatorPhoto: tasks.creatorPhoto,
       groupId: tasks.groupId,
       stageId: tasks.stageId,
       deadline: tasks.deadline,
@@ -113,11 +115,15 @@ export async function GET(request: NextRequest, context: RouteContext) {
     delete result.portalUserId;
 
     if (includes.includes('comments')) {
-      result.comments = db
+      const rawComments = db
         .select()
         .from(taskComments)
         .where(eq(taskComments.taskId, taskId))
         .all();
+      result.comments = rawComments.map(c => ({
+        ...c,
+        attachedFiles: c.attachedFiles ? parseJsonField(c.attachedFiles) : null,
+      }));
     }
 
     if (includes.includes('checklist')) {

@@ -6,9 +6,35 @@ export interface JWTPayload {
   isAdmin: boolean;
 }
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'default-dev-secret-change-in-production'
-);
+const DEV_FALLBACK_SECRET = 'default-dev-secret-change-in-production';
+
+/**
+ * Get JWT secret with environment-aware enforcement.
+ * - Production: throws if JWT_SECRET is not set
+ * - Development: warns and uses fallback
+ */
+export function getJwtSecret(): Uint8Array {
+  const secret = process.env.JWT_SECRET;
+
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'JWT_SECRET environment variable is required in production. ' +
+        'Set a strong random secret (at least 32 characters) in your environment.'
+      );
+    }
+
+    console.warn(
+      '[auth] WARNING: JWT_SECRET is not set. Using insecure default secret. ' +
+      'This is acceptable for development but MUST be set in production.'
+    );
+    return new TextEncoder().encode(DEV_FALLBACK_SECRET);
+  }
+
+  return new TextEncoder().encode(secret);
+}
+
+const JWT_SECRET = getJwtSecret();
 
 const JWT_EXPIRY = '7d'; // 7 days
 const JWT_ISSUER = 'taskhub';

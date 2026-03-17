@@ -14,8 +14,8 @@ interface ErrorStateProps {
  * Shows an error icon, message, and retry button.
  */
 export function ErrorState({
-  title = 'Something went wrong',
-  message = 'Failed to load data. Please try again.',
+  title = 'Что-то пошло не так',
+  message = 'Не удалось загрузить данные. Попробуйте ещё раз.',
   onRetry,
   className = '',
 }: ErrorStateProps) {
@@ -30,7 +30,7 @@ export function ErrorState({
       <p className="text-xs text-text-secondary max-w-sm mb-4">{message}</p>
       {onRetry && (
         <Button variant="primary" size="sm" onClick={onRetry}>
-          Try Again
+          Попробовать снова
         </Button>
       )}
     </div>

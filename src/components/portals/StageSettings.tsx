@@ -76,20 +76,20 @@ function CreateStageForm({
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
-        Add stage
+        Добавить стадию
       </Button>
     );
   }
 
   return (
     <div className="p-4 rounded-input border border-border bg-background space-y-3">
-      <h4 className="text-small font-medium text-foreground">New custom stage</h4>
+      <h4 className="text-small font-medium text-foreground">Новая пользовательская стадия</h4>
 
       <input
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Stage name..."
+        placeholder="Название стадии..."
         className="w-full rounded-input border border-border px-3 py-2 text-body text-foreground bg-surface outline-none focus:border-primary"
         autoFocus
         onKeyDown={(e) => {
@@ -100,7 +100,7 @@ function CreateStageForm({
 
       {/* Color picker */}
       <div className="space-y-1.5">
-        <span className="text-small text-text-secondary">Color:</span>
+        <span className="text-small text-text-secondary">Цвет:</span>
         <div className="flex flex-wrap gap-2">
           {COLOR_PRESETS.map((c) => (
             <button
@@ -115,7 +115,7 @@ function CreateStageForm({
               title={c}
             />
           ))}
-          <label className="w-7 h-7 rounded-full border border-border flex items-center justify-center cursor-pointer hover:border-border-hover" title="Custom color">
+          <label className="w-7 h-7 rounded-full border border-border flex items-center justify-center cursor-pointer hover:border-border-hover" title="Свой цвет">
             <input
               type="color"
               value={color}
@@ -131,16 +131,16 @@ function CreateStageForm({
 
       {createStage.isError && (
         <p className="text-small text-danger">
-          {createStage.error instanceof Error ? createStage.error.message : 'Failed to create stage'}
+          {createStage.error instanceof Error ? createStage.error.message : 'Не удалось создать стадию'}
         </p>
       )}
 
       <div className="flex gap-2">
         <Button size="sm" onClick={handleSubmit} loading={createStage.isPending} disabled={!title.trim()}>
-          Create
+          Создать
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setShowForm(false)}>
-          Cancel
+          Отмена
         </Button>
       </div>
     </div>
@@ -184,7 +184,7 @@ function StageEditForm({
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Stage name..."
+        placeholder="Название стадии..."
         className="w-full rounded-input border border-border px-3 py-2 text-body text-foreground bg-surface outline-none focus:border-primary"
         autoFocus
         onKeyDown={(e) => {
@@ -195,7 +195,7 @@ function StageEditForm({
 
       {/* Color picker */}
       <div className="space-y-1.5">
-        <span className="text-small text-text-secondary">Color:</span>
+        <span className="text-small text-text-secondary">Цвет:</span>
         <div className="flex flex-wrap gap-2">
           {COLOR_PRESETS.map((c) => (
             <button
@@ -225,16 +225,16 @@ function StageEditForm({
 
       {updateStage.isError && (
         <p className="text-small text-danger">
-          {updateStage.error instanceof Error ? updateStage.error.message : 'Failed to update stage'}
+          {updateStage.error instanceof Error ? updateStage.error.message : 'Не удалось обновить стадию'}
         </p>
       )}
 
       <div className="flex gap-2">
         <Button size="sm" onClick={handleSave} loading={updateStage.isPending} disabled={!title.trim()}>
-          Save
+          Сохранить
         </Button>
         <Button size="sm" variant="ghost" onClick={onClose}>
-          Cancel
+          Отмена
         </Button>
       </div>
     </div>
@@ -295,7 +295,7 @@ function BitrixStageMapper({
       {/* Current mappings */}
       <div className="flex flex-wrap gap-1.5 mb-2">
         {stage.mappedStages.length === 0 ? (
-          <span className="text-xs text-text-muted">No Bitrix24 stages mapped</span>
+          <span className="text-xs text-text-muted">Стадии Bitrix24 не привязаны</span>
         ) : (
           stage.mappedStages.map((m) => (
             <span
@@ -314,7 +314,7 @@ function BitrixStageMapper({
                 onClick={() => handleUnmap(m.taskStageId)}
                 className="ml-0.5 text-text-muted hover:text-danger transition-colors"
                 disabled={unmapStage.isPending}
-                title="Remove mapping"
+                title="Удалить привязку"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -335,14 +335,14 @@ function BitrixStageMapper({
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3.5 h-3.5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          Map Bitrix24 stage
+          Привязать стадию Bitrix24
         </button>
 
         {showDropdown && (
           <div className="absolute z-20 mt-1 w-64 bg-surface border border-border rounded-input shadow-lg max-h-48 overflow-y-auto">
             {availableStages.length === 0 ? (
               <div className="p-3 text-xs text-text-muted text-center">
-                No available Bitrix24 stages
+                Нет доступных стадий Bitrix24
               </div>
             ) : (
               availableStages.map((bs) => {
@@ -435,7 +435,7 @@ function CustomStageRow({
           <div className="min-w-0">
             <p className="font-medium text-body truncate">{stage.title}</p>
             <p className="text-xs text-text-muted">
-              {stage.mappedStages.length} Bitrix24 {stage.mappedStages.length === 1 ? 'stage' : 'stages'} mapped
+              {stage.mappedStages.length} {stage.mappedStages.length === 1 ? 'стадия Bitrix24 привязана' : 'стадий Bitrix24 привязано'}
             </p>
           </div>
         </div>
@@ -447,7 +447,7 @@ function CustomStageRow({
             onClick={onMoveUp}
             disabled={index === 0}
             className="p-1.5 rounded-input text-text-muted hover:text-foreground hover:bg-background transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Move up"
+            title="Переместить вверх"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
@@ -459,7 +459,7 @@ function CustomStageRow({
             onClick={onMoveDown}
             disabled={index === totalStages - 1}
             className="p-1.5 rounded-input text-text-muted hover:text-foreground hover:bg-background transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Move down"
+            title="Переместить вниз"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -470,7 +470,7 @@ function CustomStageRow({
           <button
             onClick={() => setEditing(!editing)}
             className="p-1.5 rounded-input text-text-muted hover:text-foreground hover:bg-background transition-colors"
-            title="Edit stage"
+            title="Редактировать стадию"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
@@ -481,7 +481,7 @@ function CustomStageRow({
           <button
             onClick={() => setConfirmDelete(true)}
             className="p-1.5 rounded-input text-text-muted hover:text-danger hover:bg-danger-light transition-colors"
-            title="Delete stage"
+            title="Удалить стадию"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
@@ -511,7 +511,7 @@ function CustomStageRow({
       {confirmDelete && (
         <div className="mt-3 pt-3 border-t border-border">
           <p className="text-small text-danger mb-2">
-            Delete stage &quot;{stage.title}&quot;? This will also remove all Bitrix24 stage mappings.
+            Удалить стадию &quot;{stage.title}&quot;? Все привязки к стадиям Bitrix24 будут удалены.
           </p>
           <div className="flex gap-2">
             <Button
@@ -520,10 +520,10 @@ function CustomStageRow({
               onClick={handleDelete}
               loading={deleteStage.isPending}
             >
-              Delete
+              Удалить
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Cancel
+              Отмена
             </Button>
           </div>
         </div>
@@ -555,7 +555,7 @@ function UnmappedStages({
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
         </svg>
         <span className="text-small font-medium text-warning">
-          {unmappedStages.length} unmapped Bitrix24 {unmappedStages.length === 1 ? 'stage' : 'stages'}
+          {unmappedStages.length} {unmappedStages.length === 1 ? 'непривязанная стадия Bitrix24' : 'непривязанных стадий Bitrix24'}
         </span>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -664,7 +664,7 @@ export function StageSettings({ portalId }: StageSettingsProps) {
   if (isLoading) {
     return (
       <div className="bg-surface rounded-card border border-border p-6">
-        <h3 className="text-h3 font-semibold mb-4">Kanban Stages</h3>
+        <h3 className="text-h3 font-semibold mb-4">Стадии канбана</h3>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3 p-3 rounded-input border border-border animate-pulse">
@@ -687,9 +687,9 @@ export function StageSettings({ portalId }: StageSettingsProps) {
     <div className="bg-surface rounded-card border border-border p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-h3 font-semibold">Kanban Stages</h3>
+          <h3 className="text-h3 font-semibold">Стадии канбана</h3>
           <p className="text-small text-text-secondary mt-0.5">
-            Create custom stages and map Bitrix24 stages to them
+            Создавайте пользовательские стадии и привязывайте к ним стадии Bitrix24
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -699,12 +699,12 @@ export function StageSettings({ portalId }: StageSettingsProps) {
             variant="secondary"
             onClick={handleRefreshStages}
             loading={refreshing}
-            title="Refresh Bitrix24 stages"
+            title="Обновить стадии Bitrix24"
           >
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
             </svg>
-            Refresh stages
+            Обновить стадии
           </Button>
         </div>
       </div>
@@ -718,7 +718,7 @@ export function StageSettings({ portalId }: StageSettingsProps) {
       {stages.length === 0 ? (
         <div className="text-center py-6">
           <p className="text-text-secondary text-small">
-            No custom stages yet. Create your first stage to start mapping.
+            Пользовательских стадий пока нет. Создайте первую стадию для начала привязки.
           </p>
         </div>
       ) : (
@@ -751,9 +751,9 @@ export function StageSettings({ portalId }: StageSettingsProps) {
           <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
         </svg>
         <p className="text-xs text-primary">
-          Custom stages group multiple Bitrix24 stages into unified kanban columns.
-          Each Bitrix24 stage can only be mapped to one custom stage.
-          Use &quot;Refresh stages&quot; to fetch the latest stages from Bitrix24.
+          Пользовательские стадии объединяют несколько стадий Bitrix24 в единые колонки канбана.
+          Каждая стадия Bitrix24 может быть привязана только к одной пользовательской стадии.
+          Используйте &quot;Обновить стадии&quot; для загрузки актуальных стадий из Bitrix24.
         </p>
       </div>
     </div>

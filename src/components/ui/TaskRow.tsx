@@ -13,6 +13,7 @@ export interface TaskRowData {
   priority: string;
   deadline: string | null;
   responsibleName: string | null;
+  responsiblePhoto: string | null;
   portalColor: string;
   portalName: string;
 }
@@ -108,7 +109,7 @@ export function TaskRow({ task, className }: TaskRowProps) {
 
       {/* Responsible avatar */}
       {task.responsibleName && (
-        <Avatar name={task.responsibleName} size="sm" className="hidden sm:flex" />
+        <Avatar name={task.responsibleName} src={task.responsiblePhoto} size="sm" className="hidden sm:flex" />
       )}
 
       {/* Deadline */}

@@ -16,8 +16,10 @@ export interface Task {
   mark: string | null;
   responsibleId: string | null;
   responsibleName: string | null;
+  responsiblePhoto: string | null;
   creatorId: string | null;
   creatorName: string | null;
+  creatorPhoto: string | null;
   groupId: number | null;
   stageId: number | null;
   deadline: string | null;
@@ -58,14 +60,24 @@ export interface TaskStage {
   updatedAt: string;
 }
 
+export interface CommentFile {
+  id: number;
+  name: string;
+  size: number | null;
+  downloadUrl: string | null;
+  contentType: string | null;
+}
+
 export interface TaskComment {
   id: number;
   taskId: number;
   bitrixCommentId: number;
   authorId: string | null;
   authorName: string | null;
+  authorPhoto: string | null;
   postMessage: string | null;
   postDate: string | null;
+  attachedFiles: CommentFile[] | null;
   createdAt: string;
 }
 

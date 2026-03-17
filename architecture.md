@@ -16,6 +16,7 @@
 - **Markdown:** react-markdown (rendering AI report content)
 - **PWA:** @ducanh2912/next-pwa (service worker, offline fallback, caching strategies)
 - **Push:** web-push (VAPID, Web Push Protocol)
+- **Sanitization:** isomorphic-dompurify (XSS protection, works in SSR and client)
 - **Font:** Inter (Google Fonts via next/font)
 
 ---
@@ -24,7 +25,7 @@
 
 ```
 src/
-├── middleware.ts                  # Next.js Edge middleware: auth redirect (protects /dashboard, /tasks, /calendar, etc.; redirects /login if authenticated)
+├── middleware.ts                  # Next.js Edge middleware: auth redirect (protects /dashboard, /tasks, /calendar, etc.; redirects /login if authenticated) + security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy) via addSecurityHeaders()
 ├── instrumentation.ts             # Next.js instrumentation hook: initializes cron jobs on server start (production or ENABLE_CRON=true)
 ├── app/                           # Next.js App Router
 │   ├── layout.tsx                 # Root layout: Inter font, Providers wrapper, PWA metadata (manifest, theme-color, apple-web-app)
@@ -44,6 +45,8 @@ src/
 │   │   │   ├── page.tsx           # Dashboard page: live StatCards (total/inProgress/completed/overdue) + TaskList with filters
 │   │   │   └── loading.tsx        # Dashboard skeleton: 4 StatCards + 5 TaskRow skeletons
 │   │   ├── tasks/
+│   │   │   ├── page.tsx           # Страница задач: заголовок «Задачи» + TaskList с фильтрами, поиском и пагинацией
+│   │   │   ├── loading.tsx        # Скелетон страницы задач: заголовок + поиск + фильтры + 8 TaskRowSkeleton
 │   │   │   └── [id]/
 │   │   │       ├── page.tsx       # Task detail page: uses TaskDetail component with comments, checklist, files, sidebar
 │   │   │       └── loading.tsx    # Task detail skeleton: main content + sidebar
@@ -68,7 +71,7 @@ src/
 │   │           └── loading.tsx    # Admin users skeleton: header + user cards
 │   └── api/
 │       ├── auth/
-│       │   ├── login/route.ts     # POST: authenticate, return JWT cookie + user
+│       │   ├── login/route.ts     # POST: authenticate, return JWT cookie + user; rate-limited by IP (loginLimiter: 5/15min)
 │       │   ├── me/route.ts        # GET: return current user from JWT
 │       │   └── refresh/           # (placeholder)
 │       ├── users/
@@ -159,7 +162,7 @@ src/
 │   │   └── NotificationDropdown.tsx # Dropdown panel: type icons, relative time, portal indicator, skeleton loading, empty state, click-to-navigate + auto-mark-read, "Прочитать все" button
 │   ├── portals/
 │   │   ├── index.ts               # Barrel export: AddPortalForm, PortalList
-│   │   ├── AddPortalForm.tsx      # Form: domain input, optional name, 8 color options, check/connect buttons, OAuth redirect (admin-only, conditionally rendered by portals page)
+│   │   ├── AddPortalForm.tsx      # Form: domain input, Client ID, Client Secret, optional name, 8 color options, expandable section with install/handler URLs for Bitrix24 app setup, check/connect buttons, OAuth redirect (admin-only, conditionally rendered by portals page)
 │   │   ├── PortalList.tsx         # Portal cards: initial letter avatar, domain, active badge; admin: inline edit (name/color), settings link, sync/disconnect buttons; non-admin: read-only view
 │   │   ├── PortalAccessManager.tsx # Admin component: manage user access to portal — add user (select dropdown + role + permission checkboxes), list users with badges, edit/revoke per user; requires callbacks for grant/update/revoke
 │   │   ├── BitrixUserMapping.tsx  # Admin component: map app users to Bitrix24 users — shows portal users with dropdown/autocomplete for Bitrix24 user selection, debounced search, save/remove mapping, mapped/total counter badge, loading skeletons
@@ -188,19 +191,22 @@ src/
 │       └── UserDetailModal.tsx     # User detail modal: StatCards (tasks stats), portal list, account info; fetches from /api/users/[id]/stats and /portals
 ├── lib/
 │   ├── utils.ts                   # cn() utility: merge CSS class names, filtering falsy values
+│   ├── utils/
+│   │   └── sanitize.ts            # HTML sanitization via isomorphic-dompurify: sanitizeHtml() (whitelist of safe tags/attrs), sanitizeText() (strip all tags)
 │   ├── db/
 │   │   ├── index.ts               # DB initialization: creates SQLite connection, 14 tables, migrates existing portals to user_portal_access, runs seed
 │   │   ├── schema.ts              # Drizzle ORM schema: 14 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, notifications, ai_reports, ai_chat_messages)
 │   │   └── seed.ts                # Admin seed from env vars (ADMIN_EMAIL/PASSWORD)
 │   ├── auth/
-│   │   ├── jwt.ts                 # JWT sign/verify with jose (HS256, 7d expiry)
+│   │   ├── jwt.ts                 # JWT sign/verify with jose (HS256, 7d expiry); getJwtSecret() — environment-aware secret enforcement (throws in production if JWT_SECRET missing, warns+fallback in dev); shared by middleware.ts and oauth.ts
 │   │   ├── password.ts            # bcryptjs hash/verify
+│   │   ├── password-policy.ts    # validatePassword(): enforces min 8 chars, uppercase, lowercase, digit; returns { valid, message } with Russian error messages
 │   │   ├── middleware.ts          # getAuthUser(): extract JWT from cookie/Bearer header
 │   │   └── guards.ts             # requireAuth(), requireAdmin(), isAuthError() helpers
 │   ├── bitrix/
 │   │   ├── client.ts              # Bitrix24Client class: call(method, params), callBatch(commands, max 50), auto token refresh on expired_token, retry once
-│   │   ├── token-manager.ts       # getValidToken(portalId): checks expiry, per-portal mutex refresh via Promise chain, saves new tokens to DB; Bitrix24Error class
-│   │   ├── oauth.ts               # getAuthUrl(domain, userId): signed JWT state, OAuth URL; verifyOAuthState(state); exchangeCode(code): token exchange via oauth.bitrix.info
+│   │   ├── token-manager.ts       # getValidToken(portalId): checks expiry, per-portal mutex refresh via Promise chain, reads clientId/clientSecret from portal DB record (encrypted), saves new tokens (encrypted) to DB; redactSensitiveData() strips tokens from error logs; Bitrix24Error class
+│   │   ├── oauth.ts               # getAuthUrl(domain, userId, clientId, clientSecret): signed JWT state with per-portal credentials, OAuth URL; verifyOAuthState(state) -> {userId, clientId, clientSecret}; exchangeCode(code, clientId, clientSecret): token exchange via oauth.bitrix.info
 │   │   ├── events.ts              # registerEventHandlers(portalId): batch event.bind for ONTASKADD/UPDATE/DELETE/COMMENTADD; unregisterEventHandlers: batch event.unbind
 │   │   ├── stages.ts              # fetchStages(portalId, entityId): calls task.stages.get, upserts to DB; getStagesForPortal(portalId, entityId?): local DB query sorted by sort
 │   │   ├── stage-settings.ts     # Custom stage CRUD + Bitrix24 mapping: getCustomStages(portalId) with mappings JOIN, createCustomStage, updateCustomStage, deleteCustomStage (cascade), mapBitrixStageToCustom, unmapBitrixStage, getCustomStageForTask, reorderCustomStages, getCustomStageById, getCustomStageMappingsForPortal
@@ -215,7 +221,7 @@ src/
 │   │   ├── access.ts              # Portal access CRUD: getUserPortals, getPortalUsers, hasPortalAccess, isPortalAdmin, getPortalAccess, grantPortalAccess, updatePortalAccess, revokePortalAccess (last-admin protection), getAccessiblePortalIds
 │   │   ├── mappings.ts            # User-Bitrix24 mapping CRUD: getBitrixUserIdForUser, getUserForBitrixUserId, getUsersForBitrixUserIds (bulk inArray), getAllMappingsForPortal (with user info JOIN), createMapping, deleteMapping, updateMapping
 │   │   ├── notification-resolver.ts # Notification recipient resolution: resolveNotificationRecipients(portalId, task) — collects bitrix user IDs from task, maps to app users, filters by can_see_* permissions, fallback to portal admin; resolveRecipientsForMention(portalId, bitrixUserIds) — maps mentioned bitrix IDs to app users without permission filtering
-│   │   └── task-filter.ts         # SQL task access filtering: buildTaskAccessFilter(userId) — builds raw SQL WHERE based on user_portal_access permissions + user_bitrix_mappings; buildPortalTaskFilter(userId, portalId) — single portal variant; uses LIKE for JSON array fields (accomplices, auditors)
+│   │   └── task-filter.ts         # Task access filtering: buildTaskAccessFilter(userId) — builds parameterized SQL WHERE using Drizzle ORM operators (eq, like, or, and) based on user_portal_access permissions + user_bitrix_mappings; buildPortalTaskFilter(userId, portalId) — single portal variant; returns SQL type; uses like() for JSON array fields (accomplices, auditors); getAccessiblePortalIds(userId) — returns portal ID list
 │   ├── calendar/
 │   │   └── utils.ts               # Calendar utilities: constants (HOUR_HEIGHT=80, WORK_HOURS 9-18, MAX_OVERLAP_COLUMNS=4), range helpers (getWeekRange Mon-Sun, getDayRange), pixel calculations (timeToPixelOffset clamped 0-720, getTaskTimeBlock from startDatePlan/endDatePlan/deadline), overlap algorithm (resolveOverlaps greedy column packing with cap at 4 columns — tasks beyond cap get hidden=true, carrier task gets overflowCount), free slot finder (findFreeSlots 30-min increment bitmap), busy level (getBusyLevel), Russian locale date formatting (formatWeekLabel, formatDayLabel, getDayShortName, isToday, isSameDay, isWeekend)
 │   ├── notifications/
@@ -228,6 +234,10 @@ src/
 │   │   ├── client.ts              # OpenRouter (OpenAI SDK) singleton: generateCompletion(system, user) -> text, streamCompletion(system, user, history) -> ReadableStream<string>, AIError class, isAIAvailable(), model: x-ai/grok-4.1-fast
 │   │   ├── reports.ts             # generateDailyReport(userId, date?), generateWeeklyReport(userId, week?), regenerateReport(), getUserReports(); fetches tasks from SQLite, builds AI prompt, caches in ai_reports; fallback if AI unavailable
 │   │   └── chat.ts                # chatAboutTasks(userId, message) -> ReadableStream<Uint8Array> for streaming; getChatHistory(), clearChatHistory(); task context (200 tasks), 20-message history
+│   ├── crypto/
+│   │   └── encryption.ts          # AES-256-GCM encryption: encrypt(plaintext)->iv:authTag:ciphertext (base64), decrypt(encrypted)->plaintext (backward compatible with plaintext), isEncrypted(value)->boolean; ENCRYPTION_KEY from env (64 hex chars), dev fallback key with warning, production throws if not set
+│   ├── security/
+│   │   └── rate-limiter.ts        # In-memory sliding-window rate limiter: RateLimiter class (Map<string, number[]>, check/consume methods, periodic cleanup); pre-configured instances: loginLimiter (5/15min per IP), webhookLimiter (100/min per member_id), aiLimiter (10/min per userId); rateLimitResponse() helper for 429 + Retry-After
 │   └── cron/
 │       └── scheduler.ts           # initializeCron(): node-cron jobs — hourly overdue check, per-minute digest delivery (matches user digest_time), 00:00 daily task snapshots, 00:05 daily report pre-generation; shouldEnableCron()
 ├── hooks/
@@ -262,13 +272,13 @@ src/
 
 | File | Description |
 |------|-------------|
-| [package.json](./package.json) | Dependencies, scripts (dev, build, type-check, db:push/studio/generate, vapid:generate) |
+| [package.json](./package.json) | Dependencies, scripts (dev, build, type-check, db:push/studio/generate, vapid:generate, db:encrypt) |
 | [tsconfig.json](./tsconfig.json) | TypeScript strict mode, path alias `@/*` -> `./src/*`, excludes `service-worker/` dir |
 | [next.config.ts](./next.config.ts) | Next.js + @ducanh2912/next-pwa config (caching strategies, offline fallback, custom worker) |
 | [postcss.config.mjs](./postcss.config.mjs) | PostCSS with @tailwindcss/postcss plugin |
 | [eslint.config.mjs](./eslint.config.mjs) | ESLint flat config with next/core-web-vitals + typescript |
 | [drizzle.config.ts](./drizzle.config.ts) | Drizzle Kit config: SQLite dialect, schema path, DB credentials |
-| [.env.example](./.env.example) | Template for all env vars (JWT_SECRET, ADMIN_*, BITRIX_*, OPENROUTER_*, VAPID_*) |
+| [.env.example](./.env.example) | Template for all env vars (JWT_SECRET, ADMIN_*, BITRIX_*, OPENROUTER_*, VAPID_*, ENCRYPTION_KEY) |
 | [.env.local](./.env.local) | Local development env vars |
 
 ---
@@ -278,7 +288,7 @@ src/
 | Table | Key Fields | Constraints |
 |-------|-----------|-------------|
 | **users** | id, email, password_hash, first_name, last_name, is_admin, notify_* flags, push_subscription | email UNIQUE |
-| **portals** | id, user_id FK, domain, name, color, member_id, access_token, refresh_token, app_token | UNIQUE(member_id) |
+| **portals** | id, user_id FK, domain, name, color, member_id, client_id (encrypted), client_secret (encrypted), access_token, refresh_token, app_token | UNIQUE(member_id) |
 | **user_portal_access** | id, user_id FK(users), portal_id FK(portals), role ('admin'\|'viewer'), can_see_responsible, can_see_accomplice, can_see_auditor, can_see_creator, can_see_all | UNIQUE(user_id, portal_id) |
 | **user_bitrix_mappings** | id, user_id FK(users), portal_id FK(portals), bitrix_user_id, bitrix_name | UNIQUE(user_id, portal_id), UNIQUE(portal_id, bitrix_user_id) |
 | **portal_custom_stages** | id, portal_id FK(portals), title, color, sort | - |
@@ -299,7 +309,8 @@ All tables use INTEGER PRIMARY KEY AUTOINCREMENT. Foreign keys enforce CASCADE o
 ## Auth Flow
 
 1. **Login:** POST `/api/auth/login` with `{email, password}` -> validates credentials, returns user JSON + sets `token` HttpOnly cookie (JWT, HS256, 7d)
-2. **Edge Middleware:** [middleware.ts](./src/middleware.ts) runs on every non-API/static request. Verifies JWT via jose in Edge Runtime. Redirects unauthenticated users to `/login` (with `?redirect=` param), authenticated users from `/login` to `/dashboard`, and root `/` based on auth state. Excludes `/api`, `/_next`, `/static`, files with extensions.
+2. **Edge Middleware:** [middleware.ts](./src/middleware.ts) runs on every non-API/static request. Verifies JWT via jose in Edge Runtime (uses shared `getJwtSecret()` from jwt.ts). Redirects unauthenticated users to `/login` (with `?redirect=` param), authenticated users from `/login` to `/dashboard`, and root `/` based on auth state. Excludes `/api`, `/_next`, `/static`, files with extensions. Adds security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy) to all responses via `addSecurityHeaders()`.
+2a. **Password Policy:** [password-policy.ts](./src/lib/auth/password-policy.ts) enforces password strength (min 8 chars, uppercase, lowercase, digit). Used in POST `/api/users` and PATCH `/api/users/[id]` when setting/updating passwords.
 3. **Auth check (API):** `getAuthUser(request)` in [lib/auth/middleware.ts](./src/lib/auth/middleware.ts) reads JWT from cookie or `Authorization: Bearer` header
 4. **Route protection (API):** `requireAuth()` / `requireAdmin()` guards in [guards.ts](./src/lib/auth/guards.ts) return user or 401/403 response
 5. **Current user:** GET `/api/auth/me` returns user profile (requires valid JWT)
@@ -388,9 +399,9 @@ Defined in [globals.css](./src/app/globals.css) via CSS variables and `@theme in
 
 ### OAuth Flow
 
-1. Admin enters portal domain on `/portals` page -> clicks "Connect" -> POST `/api/portals` (requires app admin) generates OAuth URL with signed JWT state
+1. Admin enters portal domain, Client ID, Client Secret on `/portals` page -> clicks "Connect" -> POST `/api/portals` (requires app admin) generates OAuth URL with signed JWT state (embeds clientId + clientSecret)
 2. Admin redirects to `https://{domain}/oauth/authorize/` -> authorizes -> Bitrix24 redirects to `/api/oauth/callback`
-3. [Callback route](./src/app/api/oauth/callback/route.ts) verifies state JWT, exchanges code for tokens via `oauth.bitrix.info`, creates/updates portal in DB (unique by memberId), auto-creates user_portal_access for connecting admin (role='admin', can_see_all=true)
+3. [Callback route](./src/app/api/oauth/callback/route.ts) verifies state JWT (extracts clientId/clientSecret), exchanges code for tokens via `oauth.bitrix.info` using per-portal credentials, creates/updates portal in DB (unique by memberId, stores encrypted clientId/clientSecret), auto-creates user_portal_access for connecting admin (role='admin', can_see_all=true)
 4. Background: [registerEventHandlers](./src/lib/bitrix/events.ts) binds ONTASKADD/UPDATE/DELETE/COMMENTADD, [fetchStages](./src/lib/bitrix/stages.ts) caches stages
 5. Redirect to `/portals?success=...`
 
@@ -433,7 +444,7 @@ Defined in [globals.css](./src/app/globals.css) via CSS variables and `@theme in
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/portals` | GET | List user's portals via user_portal_access (optional `?active=true/false`, returns role+permissions) |
-| `/api/portals` | POST | Initiate OAuth — requires app admin, returns `{ authUrl }` |
+| `/api/portals` | POST | Initiate OAuth — requires app admin, body: `{domain, clientId, clientSecret}`, returns `{ authUrl }` |
 | `/api/portals/[id]` | GET | Portal details (checks user_portal_access or app admin) |
 | `/api/portals/[id]` | PATCH | Update name, color, isActive (requires portal admin or app admin) |
 | `/api/portals/[id]` | DELETE | Soft-delete (isActive=false) + unregister events (requires portal admin or app admin) |
@@ -469,10 +480,12 @@ Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQL
 
 - POST endpoint receiving Bitrix24 event callbacks
 - Parses both `application/json` and `application/x-www-form-urlencoded` (nested key format)
-- Verifies `application_token` from event `auth` against portal's `app_token` in DB
+- Rate-limited by member_id (webhookLimiter: 100/min)
+- Verifies `application_token` from event `auth` against portal's encrypted `app_token` in DB
+- Rejects webhooks from portals without appToken configured (no bypass fallback)
 - Identifies portal by `member_id` from event `auth`
 - Returns 200 OK immediately, processes event asynchronously (fire-and-forget)
-- Error responses: 403 (invalid token), 404 (unknown portal), 400 (missing member_id)
+- Error responses: 429 (rate limited), 403 (invalid token / no appToken), 404 (unknown portal), 400 (missing member_id)
 - Supported events: ONTASKADD, ONTASKUPDATE, ONTASKDELETE, ONTASKCOMMENTADD, ONTASKCOMMENTUPDATE
 
 ### Webhook Event Handlers ([`lib/bitrix/webhook-handlers.ts`](./src/lib/bitrix/webhook-handlers.ts))
@@ -566,13 +579,35 @@ Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQL
 
 | Variable | Description |
 |----------|-------------|
-| `BITRIX_CLIENT_ID` | OAuth application client ID from Bitrix24 marketplace |
-| `BITRIX_CLIENT_SECRET` | OAuth application client secret |
 | `NEXT_PUBLIC_APP_URL` | Public URL for OAuth callback and webhook handler |
 | `VAPID_PUBLIC_KEY` | VAPID public key for Web Push (generated via `npm run vapid:generate`) |
 | `VAPID_PRIVATE_KEY` | VAPID private key for Web Push (keep secret) |
 | `VAPID_SUBJECT` | VAPID subject (mailto: email for push service contact) |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Client-exposed VAPID public key (same as `VAPID_PUBLIC_KEY`) |
+| `ENCRYPTION_KEY` | AES-256-GCM key (64 hex chars = 32 bytes) for encrypting credentials in DB. Required in production; dev uses fallback key. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+
+### Security: Credential Encryption
+
+- **Module:** [lib/crypto/encryption.ts](./src/lib/crypto/encryption.ts) — AES-256-GCM encryption/decryption using Node.js `crypto`
+  - `encrypt(plaintext)` — returns `base64(iv):base64(authTag):base64(ciphertext)` format
+  - `decrypt(encrypted)` — parses format and decrypts; returns plaintext as-is if not encrypted (backward compatibility)
+  - `isEncrypted(value)` — checks if value matches encrypted format (3 base64 parts separated by `:`)
+- **Encrypted fields:** `portals.clientId`, `portals.clientSecret`, `portals.accessToken`, `portals.refreshToken`, `portals.appToken`, `users.pushSubscription`
+- **Integration points:**
+  - [token-manager.ts](./src/lib/bitrix/token-manager.ts) — decrypt on read, encrypt on write (token refresh)
+  - [oauth/callback/route.ts](./src/app/api/oauth/callback/route.ts) — encrypt tokens on INSERT/UPDATE + appToken
+  - [webhooks/bitrix/route.ts](./src/app/api/webhooks/bitrix/route.ts) — decrypt appToken for verification
+  - [notifications/push.ts](./src/lib/notifications/push.ts) — encrypt pushSubscription on save, decrypt on read
+- **Migration script:** [scripts/encrypt-existing-tokens.ts](./scripts/encrypt-existing-tokens.ts) — encrypts existing plaintext tokens (`npm run db:encrypt`). Idempotent, uses transactions
+
+### Security: XSS Protection
+
+- **Module:** [lib/utils/sanitize.ts](./src/lib/utils/sanitize.ts) — HTML sanitization via `isomorphic-dompurify` (works in SSR and client)
+  - `sanitizeHtml(dirty)` — sanitizes HTML keeping whitelisted tags (b, i, u, s, em, strong, a, br, p, ul, ol, li, span, div, img, table, tr, td, th, thead, tbody, h1-h4, pre, code, blockquote) and attributes (href, target, rel, src, alt, class, style, width, height, colspan, rowspan). Removes script tags, event handlers, and other XSS vectors
+  - `sanitizeText(dirty)` — strips all HTML tags, returns plain text
+- **Integration points:**
+  - [Comments.tsx](./src/components/tasks/Comments.tsx) — `comment.postMessage` sanitized before `dangerouslySetInnerHTML`
+  - [TaskDetail.tsx](./src/components/tasks/TaskDetail.tsx) — `task.descriptionHtml` sanitized before `dangerouslySetInnerHTML`
 
 ---
 
@@ -629,6 +664,7 @@ Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQL
 
 Each main route has a `loading.tsx` that renders appropriate skeletons:
 - [`dashboard/loading.tsx`](./src/app/(dashboard)/dashboard/loading.tsx) — DashboardSkeleton (4 StatCards + 5 TaskRows)
+- [`tasks/loading.tsx`](./src/app/(dashboard)/tasks/loading.tsx) — Скелетон списка задач (заголовок + поиск + фильтры + 8 TaskRowSkeleton)
 - [`tasks/[id]/loading.tsx`](./src/app/(dashboard)/tasks/[id]/loading.tsx) — Task detail skeleton
 - [`portals/loading.tsx`](./src/app/(dashboard)/portals/loading.tsx) — Form + portal card skeletons
 - [`settings/loading.tsx`](./src/app/(dashboard)/settings/loading.tsx) — Tab + form field skeletons

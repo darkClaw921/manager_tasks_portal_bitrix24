@@ -28,14 +28,14 @@ export function CreateUserForm({ onSubmit, onCancel, isLoading, error }: CreateU
   const validate = (): boolean => {
     const errors: Record<string, string> = {};
 
-    if (!email.trim()) errors.email = 'Email is required';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Invalid email format';
+    if (!email.trim()) errors.email = 'Email обязателен';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Неверный формат email';
 
-    if (!password) errors.password = 'Password is required';
-    else if (password.length < 6) errors.password = 'Password must be at least 6 characters';
+    if (!password) errors.password = 'Пароль обязателен';
+    else if (password.length < 6) errors.password = 'Пароль должен быть не менее 8 символов';
 
-    if (!firstName.trim()) errors.firstName = 'First name is required';
-    if (!lastName.trim()) errors.lastName = 'Last name is required';
+    if (!firstName.trim()) errors.firstName = 'Имя обязательно';
+    if (!lastName.trim()) errors.lastName = 'Фамилия обязательна';
 
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
@@ -56,7 +56,7 @@ export function CreateUserForm({ onSubmit, onCancel, isLoading, error }: CreateU
 
   return (
     <div className="bg-surface rounded-card border border-border p-6">
-      <h3 className="text-h3 font-semibold mb-4">Create New User</h3>
+      <h3 className="text-h3 font-semibold mb-4">Создать пользователя</h3>
 
       {error && (
         <div className="mb-4 p-3 bg-danger-light text-danger text-small rounded-input">
@@ -67,18 +67,18 @@ export function CreateUserForm({ onSubmit, onCancel, isLoading, error }: CreateU
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <InputField
-            label="First name"
+            label="Имя"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
-            placeholder="John"
+            placeholder="Иван"
             error={validationErrors.firstName}
             required
           />
           <InputField
-            label="Last name"
+            label="Фамилия"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
-            placeholder="Doe"
+            placeholder="Иванов"
             error={validationErrors.lastName}
             required
           />
@@ -95,11 +95,11 @@ export function CreateUserForm({ onSubmit, onCancel, isLoading, error }: CreateU
         />
 
         <InputField
-          label="Password"
+          label="Пароль"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Min. 6 characters"
+          placeholder="Мин. 8 символов"
           error={validationErrors.password}
           required
         />
@@ -111,16 +111,16 @@ export function CreateUserForm({ onSubmit, onCancel, isLoading, error }: CreateU
             onChange={(e) => setIsAdmin(e.target.checked)}
             className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
           />
-          <span className="text-small text-foreground">Administrator</span>
-          <span className="text-xs text-text-secondary">(can manage all users and data)</span>
+          <span className="text-small text-foreground">Администратор</span>
+          <span className="text-xs text-text-secondary">(может управлять всеми пользователями и данными)</span>
         </label>
 
         <div className="flex items-center gap-2 pt-2">
           <Button type="submit" variant="primary" loading={isLoading}>
-            Create User
+            Создать
           </Button>
           <Button type="button" variant="ghost" onClick={onCancel}>
-            Cancel
+            Отмена
           </Button>
         </div>
       </form>

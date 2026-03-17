@@ -183,6 +183,7 @@ export function TaskList({ className }: TaskListProps) {
                 priority: task.priority,
                 deadline: task.deadline,
                 responsibleName: task.responsibleName,
+                responsiblePhoto: task.responsiblePhoto,
                 portalColor: task.portalColor,
                 portalName: task.portalName,
               }}

@@ -5,6 +5,8 @@ export interface Portal {
   name: string;
   color: string;
   memberId: string;
+  clientId: string;
+  clientSecret: string;
   clientEndpoint: string;
   accessToken: string;
   refreshToken: string;
@@ -34,6 +36,8 @@ export interface CreatePortalInput {
   domain: string;
   name: string;
   color?: string;
+  clientId: string;
+  clientSecret: string;
 }
 
 export interface UpdatePortalInput {

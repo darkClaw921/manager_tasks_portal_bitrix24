@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { tasks, portals, taskComments, aiReports } from '@/lib/db/schema';
-import { eq, and, gte, lte, count, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, count, desc, inArray, notInArray, or } from 'drizzle-orm';
 import { generateCompletion, isAIAvailable, AIError } from './client';
 
 // ==================== Types ====================
@@ -223,15 +223,17 @@ async function generateReport(
     })
     .from(tasks)
     .where(
-      sql`${tasks.portalId} IN (${sql.raw(portalIds.join(','))})
-        AND ${tasks.excludeFromAi} = 0
-        AND (
-          ${tasks.createdDate} BETWEEN ${periodStart} AND ${periodEnd}
-          OR ${tasks.changedDate} BETWEEN ${periodStart} AND ${periodEnd}
-          OR ${tasks.closedDate} BETWEEN ${periodStart} AND ${periodEnd}
-          OR (${tasks.deadline} BETWEEN ${periodStart} AND ${periodEnd})
-          OR (${tasks.status} NOT IN ('COMPLETED', 'DEFERRED'))
-        )`
+      and(
+        inArray(tasks.portalId, portalIds),
+        eq(tasks.excludeFromAi, 0),
+        or(
+          and(gte(tasks.createdDate, periodStart), lte(tasks.createdDate, periodEnd)),
+          and(gte(tasks.changedDate, periodStart), lte(tasks.changedDate, periodEnd)),
+          and(gte(tasks.closedDate, periodStart), lte(tasks.closedDate, periodEnd)),
+          and(gte(tasks.deadline, periodStart), lte(tasks.deadline, periodEnd)),
+          notInArray(tasks.status, ['COMPLETED', 'DEFERRED'])
+        )
+      )
     )
     .all();
 
@@ -257,8 +259,11 @@ async function generateReport(
       .select({ count: count() })
       .from(taskComments)
       .where(
-        sql`${taskComments.taskId} IN (${sql.raw(taskIds.join(','))})
-          AND ${taskComments.postDate} BETWEEN ${periodStart} AND ${periodEnd}`
+        and(
+          inArray(taskComments.taskId, taskIds),
+          gte(taskComments.postDate, periodStart),
+          lte(taskComments.postDate, periodEnd)
+        )
       )
       .get();
     stats.commentsCount = commentsResult?.count || 0;
@@ -526,7 +531,7 @@ export function getUserReports(
     .select()
     .from(aiReports)
     .where(where)
-    .orderBy(sql`${aiReports.createdAt} DESC`)
+    .orderBy(desc(aiReports.createdAt))
     .limit(limit)
     .offset(offset)
     .all();

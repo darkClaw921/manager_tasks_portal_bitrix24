@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { tasks, portals, aiChatMessages } from '@/lib/db/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { streamCompletion, isAIAvailable, AIError } from './client';
 
 // ==================== Types ====================
@@ -65,7 +65,7 @@ function getTaskContext(userId: number): string {
       closedDate: tasks.closedDate,
     })
     .from(tasks)
-    .where(sql`${tasks.portalId} IN (${sql.raw(portalIds.join(','))}) AND ${tasks.excludeFromAi} = 0`)
+    .where(and(inArray(tasks.portalId, portalIds), eq(tasks.excludeFromAi, 0)))
     .orderBy(
       sql`CASE WHEN ${tasks.status} IN ('COMPLETED', 'DEFERRED') THEN 1 ELSE 0 END`,
       desc(tasks.changedDate)

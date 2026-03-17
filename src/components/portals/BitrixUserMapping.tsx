@@ -64,7 +64,7 @@ function BitrixUserSelector({
             {selectedUser.EMAIL ? ` (${selectedUser.EMAIL})` : ''}
           </span>
         ) : (
-          <span className="text-text-muted">Select Bitrix24 user...</span>
+          <span className="text-text-muted">Выберите пользователя Bitrix24...</span>
         )}
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 shrink-0 text-text-muted">
           <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -79,7 +79,7 @@ function BitrixUserSelector({
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Search users..."
+              placeholder="Поиск пользователей..."
               className="w-full rounded-input border border-border px-3 py-1.5 text-small text-foreground bg-background outline-none focus:border-primary"
               autoFocus
             />
@@ -88,9 +88,9 @@ function BitrixUserSelector({
           {/* User list */}
           <div className="overflow-y-auto max-h-48">
             {isLoading ? (
-              <div className="p-3 text-center text-small text-text-muted">Loading users...</div>
+              <div className="p-3 text-center text-small text-text-muted">Загрузка пользователей...</div>
             ) : availableUsers.length === 0 ? (
-              <div className="p-3 text-center text-small text-text-muted">No users found</div>
+              <div className="p-3 text-center text-small text-text-muted">Пользователи не найдены</div>
             ) : (
               availableUsers.map((user) => (
                 <button
@@ -229,7 +229,7 @@ function UserMappingRow({
                 onClick={handleRemove}
                 disabled={removing}
                 className="p-1.5 rounded-input text-text-muted hover:text-danger hover:bg-danger-light transition-colors disabled:opacity-50 shrink-0"
-                title="Remove mapping"
+                title="Удалить привязку"
               >
                 {removing ? (
                   <svg className="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -258,7 +258,7 @@ function UserMappingRow({
               </div>
               {selectedBitrixUser && (
                 <Button size="sm" onClick={handleSave} loading={saving}>
-                  Save
+                  Сохранить
                 </Button>
               )}
             </div>
@@ -304,7 +304,7 @@ export function BitrixUserMapping({
   if (isMappingsLoading) {
     return (
       <div className="bg-surface rounded-card border border-border p-6">
-        <h3 className="text-h3 font-semibold mb-4">Bitrix24 User Mapping</h3>
+        <h3 className="text-h3 font-semibold mb-4">Привязка пользователей Bitrix24</h3>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex items-center gap-3 p-3 rounded-input border border-border animate-pulse">
@@ -327,10 +327,10 @@ export function BitrixUserMapping({
   return (
     <div className="bg-surface rounded-card border border-border p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-h3 font-semibold">Bitrix24 User Mapping</h3>
+        <h3 className="text-h3 font-semibold">Привязка пользователей Bitrix24</h3>
         <div className="flex items-center gap-2">
           <Badge variant={mappedCount === totalCount && totalCount > 0 ? 'success' : 'default'}>
-            {mappedCount}/{totalCount} mapped
+            {mappedCount}/{totalCount} привязано
           </Badge>
         </div>
       </div>
@@ -338,7 +338,7 @@ export function BitrixUserMapping({
       {/* User mapping list */}
       {portalUsers.length === 0 ? (
         <div className="text-center py-6">
-          <p className="text-text-secondary text-small">No users assigned to this portal yet</p>
+          <p className="text-text-secondary text-small">К этому порталу ещё не назначены пользователи</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -364,9 +364,9 @@ export function BitrixUserMapping({
           <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
         </svg>
         <p className="text-xs text-primary">
-          Map each application user to their corresponding Bitrix24 account.
-          This enables task filtering based on roles (responsible, accomplice, auditor, creator)
-          and targeted notifications.
+          Привяжите каждого пользователя приложения к соответствующему аккаунту Bitrix24.
+          Это позволит фильтровать задачи по ролям (ответственный, соисполнитель, наблюдатель, постановщик)
+          и отправлять целевые уведомления.
         </p>
       </div>
     </div>

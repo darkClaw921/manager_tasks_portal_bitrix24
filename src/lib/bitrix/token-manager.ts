@@ -2,10 +2,25 @@ import { db } from '@/lib/db';
 import { portals } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { BitrixTokenResponse } from '@/types';
+import { encrypt, decrypt } from '@/lib/crypto/encryption';
 
-const BITRIX_CLIENT_ID = process.env.BITRIX_CLIENT_ID || '';
-const BITRIX_CLIENT_SECRET = process.env.BITRIX_CLIENT_SECRET || '';
 const BITRIX_OAUTH_URL = 'https://oauth.bitrix.info/oauth/token/';
+
+/**
+ * Redact sensitive data (tokens, secrets) from a string before logging.
+ * Replaces values of known sensitive URL parameters and JSON fields.
+ */
+function redactSensitiveData(text: string): string {
+  return text
+    .replace(
+      /(?:access_token|refresh_token|auth|client_secret|application_token)=([^&\s"']+)/gi,
+      (match, _value, _offset, _str) => match.replace(_value, '[REDACTED]')
+    )
+    .replace(
+      /"(?:access_token|refresh_token|auth|client_secret|application_token)"\s*:\s*"([^"]+)"/gi,
+      (match, value) => match.replace(value, '[REDACTED]')
+    );
+}
 
 /**
  * Per-portal mutex map to prevent concurrent token refresh race conditions.
@@ -37,7 +52,7 @@ export async function getValidToken(portalId: number): Promise<string> {
     const expiresAt = new Date(portal.tokenExpiresAt).getTime();
     const now = Date.now();
     if (expiresAt - now > 60_000) {
-      return portal.accessToken;
+      return decrypt(portal.accessToken);
     }
   }
 
@@ -73,6 +88,8 @@ async function performTokenRefresh(portalId: number): Promise<string> {
     .select({
       refreshToken: portals.refreshToken,
       domain: portals.domain,
+      clientId: portals.clientId,
+      clientSecret: portals.clientSecret,
     })
     .from(portals)
     .where(eq(portals.id, portalId))
@@ -86,9 +103,9 @@ async function performTokenRefresh(portalId: number): Promise<string> {
 
   const params = new URLSearchParams({
     grant_type: 'refresh_token',
-    client_id: BITRIX_CLIENT_ID,
-    client_secret: BITRIX_CLIENT_SECRET,
-    refresh_token: portal.refreshToken,
+    client_id: decrypt(portal.clientId),
+    client_secret: decrypt(portal.clientSecret),
+    refresh_token: decrypt(portal.refreshToken),
   });
 
   const response = await fetch(`${BITRIX_OAUTH_URL}?${params.toString()}`, {
@@ -97,10 +114,14 @@ async function performTokenRefresh(portalId: number): Promise<string> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`[token-manager] Token refresh failed for portal ${portalId}:`, errorText);
+    const safeErrorText = redactSensitiveData(errorText);
+    console.error(
+      `[token-manager] Token refresh failed for portal ${portalId}: status ${response.status}`,
+      safeErrorText
+    );
     throw new Bitrix24Error(
       'TOKEN_REFRESH_FAILED',
-      `Token refresh failed: ${response.status} ${errorText}`
+      `Token refresh failed: ${response.status}`
     );
   }
 
@@ -109,11 +130,11 @@ async function performTokenRefresh(portalId: number): Promise<string> {
   // Calculate expiration time
   const tokenExpiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
 
-  // Save new tokens to DB
+  // Save new tokens to DB (encrypted)
   db.update(portals)
     .set({
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
+      accessToken: encrypt(data.access_token),
+      refreshToken: encrypt(data.refresh_token),
       tokenExpiresAt,
       updatedAt: new Date().toISOString(),
     })

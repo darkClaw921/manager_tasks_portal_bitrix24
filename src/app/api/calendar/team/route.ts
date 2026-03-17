@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { tasks, portals, userBitrixMappings, users, userPortalAccess } from '@/lib/db/schema';
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, between, lte, gte, inArray, asc } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { getAccessiblePortalIds } from '@/lib/portals/access';
 import { buildTaskAccessFilter, buildPortalTaskFilter } from '@/lib/portals/task-filter';
@@ -113,14 +113,13 @@ export async function GET(request: NextRequest) {
 
     // Date filter for a single day: any date field falls on this day
     // For a single day, dateFrom === dateTo, so the spanning condition simplifies
-    const dateRangeFilter = sql.raw(
-      `(` +
-        `(tasks.start_date_plan BETWEEN '${dateFrom}' AND '${dateTo}T23:59:59') OR ` +
-        `(tasks.end_date_plan BETWEEN '${dateFrom}' AND '${dateTo}T23:59:59') OR ` +
-        `(tasks.deadline BETWEEN '${dateFrom}' AND '${dateTo}T23:59:59') OR ` +
-        `(tasks.start_date_plan <= '${dateFrom}' AND tasks.end_date_plan >= '${dateTo}')` +
-      `)`
-    );
+    const dateToEnd = `${dateTo}T23:59:59`;
+    const dateRangeFilter = or(
+      between(tasks.startDatePlan, dateFrom, dateToEnd),
+      between(tasks.endDatePlan, dateFrom, dateToEnd),
+      between(tasks.deadline, dateFrom, dateToEnd),
+      and(lte(tasks.startDatePlan, dateFrom), gte(tasks.endDatePlan, dateTo))
+    )!;
     conditions.push(dateRangeFilter);
 
     const whereClause = and(...conditions);
@@ -138,8 +137,10 @@ export async function GET(request: NextRequest) {
         mark: tasks.mark,
         responsibleId: tasks.responsibleId,
         responsibleName: tasks.responsibleName,
+        responsiblePhoto: tasks.responsiblePhoto,
         creatorId: tasks.creatorId,
         creatorName: tasks.creatorName,
+        creatorPhoto: tasks.creatorPhoto,
         groupId: tasks.groupId,
         stageId: tasks.stageId,
         deadline: tasks.deadline,
@@ -163,7 +164,7 @@ export async function GET(request: NextRequest) {
       .from(tasks)
       .innerJoin(portals, eq(tasks.portalId, portals.id))
       .where(whereClause)
-      .orderBy(sql.raw(`tasks.deadline ASC`))
+      .orderBy(asc(tasks.deadline))
       .limit(500)
       .all();
 

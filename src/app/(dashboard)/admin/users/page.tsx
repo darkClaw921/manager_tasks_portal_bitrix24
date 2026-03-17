@@ -44,27 +44,27 @@ export default function AdminUsersPage() {
     try {
       await createUser.mutateAsync(data);
       setShowCreateForm(false);
-      showMsg('success', 'User created successfully');
+      showMsg('success', 'Пользователь создан');
     } catch (err) {
-      showMsg('error', err instanceof Error ? err.message : 'Failed to create user');
+      showMsg('error', err instanceof Error ? err.message : 'Не удалось создать пользователя');
     }
   };
 
   const handleEdit = async (user: AdminUser, updates: Record<string, unknown>) => {
     try {
       await updateUser.mutateAsync({ id: user.id, ...updates });
-      showMsg('success', 'User updated successfully');
+      showMsg('success', 'Пользователь обновлён');
     } catch (err) {
-      showMsg('error', err instanceof Error ? err.message : 'Failed to update user');
+      showMsg('error', err instanceof Error ? err.message : 'Не удалось обновить пользователя');
     }
   };
 
   const handleDelete = async (userId: number) => {
     try {
       await deleteUser.mutateAsync(userId);
-      showMsg('success', 'User deleted successfully');
+      showMsg('success', 'Пользователь удалён');
     } catch (err) {
-      showMsg('error', err instanceof Error ? err.message : 'Failed to delete user');
+      showMsg('error', err instanceof Error ? err.message : 'Не удалось удалить пользователя');
     }
   };
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { chatAboutTasks, getChatHistory, clearChatHistory } from '@/lib/ai/chat';
 import { AIError } from '@/lib/ai/client';
+import { aiLimiter, rateLimitResponse } from '@/lib/security/rate-limiter';
 
 /**
  * POST /api/reports/chat
@@ -13,6 +14,12 @@ export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request);
   if (isAuthError(authResult)) return authResult;
   const { user } = authResult;
+
+  // Rate limit by userId
+  const aiRateCheck = aiLimiter.consume(String(user.userId));
+  if (!aiRateCheck.allowed) {
+    return rateLimitResponse(aiRateCheck.retryAfterMs, 'Слишком много запросов к AI. Попробуйте позже.');
+  }
 
   let message: string;
   try {

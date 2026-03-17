@@ -78,7 +78,7 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 mx-auto text-text-muted mb-3">
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" />
         </svg>
-        <p className="text-text-secondary text-small">No users found</p>
+        <p className="text-text-secondary text-small">Пользователи не найдены</p>
       </div>
     );
   }
@@ -90,12 +90,12 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
         <table className="w-full">
           <thead>
             <tr className="border-b border-border bg-background/50">
-              <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">User</th>
+              <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Пользователь</th>
               <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Email</th>
-              <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Role</th>
-              <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Portals</th>
-              <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Created</th>
-              <th className="text-right text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Actions</th>
+              <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Роль</th>
+              <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Порталы</th>
+              <th className="text-left text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Создан</th>
+              <th className="text-right text-xs font-medium text-text-secondary uppercase tracking-wider px-4 py-3">Действия</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -109,13 +109,13 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
                           value={editForm.firstName}
                           onChange={(e) => setEditForm((p) => ({ ...p, firstName: e.target.value }))}
                           className="text-small"
-                          placeholder="First name"
+                          placeholder="Имя"
                         />
                         <InputField
                           value={editForm.lastName}
                           onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))}
                           className="text-small"
-                          placeholder="Last name"
+                          placeholder="Фамилия"
                         />
                       </div>
                     </td>
@@ -132,8 +132,8 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
                         value={editForm.isAdmin ? 'admin' : 'user'}
                         onChange={(e) => setEditForm((p) => ({ ...p, isAdmin: e.target.value === 'admin' }))}
                         options={[
-                          { value: 'user', label: 'User' },
-                          { value: 'admin', label: 'Admin' },
+                          { value: 'user', label: 'Пользователь' },
+                          { value: 'admin', label: 'Админ' },
                         ]}
                         className="text-small"
                       />
@@ -142,8 +142,8 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
                     <td className="px-4 py-3 text-small text-text-secondary">{formatDate(user.createdAt)}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button size="sm" variant="primary" onClick={() => saveEdit(user)}>Save</Button>
-                        <Button size="sm" variant="ghost" onClick={cancelEdit}>Cancel</Button>
+                        <Button size="sm" variant="primary" onClick={() => saveEdit(user)}>Сохранить</Button>
+                        <Button size="sm" variant="ghost" onClick={cancelEdit}>Отмена</Button>
                       </div>
                     </td>
                   </>
@@ -165,7 +165,7 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
                     <td className="px-4 py-3 text-small text-text-secondary">{user.email}</td>
                     <td className="px-4 py-3">
                       <Badge variant={user.isAdmin ? 'primary' : 'default'} size="sm">
-                        {user.isAdmin ? 'Admin' : 'User'}
+                        {user.isAdmin ? 'Админ' : 'Пользователь'}
                       </Badge>
                     </td>
                     <td className="px-4 py-3 text-small text-text-secondary">{user.portalCount}</td>
@@ -236,7 +236,7 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
                 </div>
               </div>
               <Badge variant={user.isAdmin ? 'primary' : 'default'} size="sm">
-                {user.isAdmin ? 'Admin' : 'User'}
+                {user.isAdmin ? 'Админ' : 'Пользователь'}
               </Badge>
             </div>
             <div className="flex items-center justify-between text-xs text-text-secondary mb-3">
@@ -275,12 +275,12 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
               <div className="border-t border-border pt-3 mt-3 space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <InputField
-                    label="First name"
+                    label="Имя"
                     value={editForm.firstName}
                     onChange={(e) => setEditForm((p) => ({ ...p, firstName: e.target.value }))}
                   />
                   <InputField
-                    label="Last name"
+                    label="Фамилия"
                     value={editForm.lastName}
                     onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))}
                   />
@@ -292,17 +292,17 @@ export function UserTable({ users, currentUserId, onEdit, onDelete, onViewDetail
                   type="email"
                 />
                 <SelectField
-                  label="Role"
+                  label="Роль"
                   value={editForm.isAdmin ? 'admin' : 'user'}
                   onChange={(e) => setEditForm((p) => ({ ...p, isAdmin: e.target.value === 'admin' }))}
                   options={[
-                    { value: 'user', label: 'User' },
-                    { value: 'admin', label: 'Admin' },
+                    { value: 'user', label: 'Пользователь' },
+                    { value: 'admin', label: 'Админ' },
                   ]}
                 />
                 <div className="flex gap-2">
-                  <Button size="sm" variant="primary" onClick={() => saveEdit(user)} className="flex-1">Save</Button>
-                  <Button size="sm" variant="ghost" onClick={cancelEdit} className="flex-1">Cancel</Button>
+                  <Button size="sm" variant="primary" onClick={() => saveEdit(user)} className="flex-1">Сохранить</Button>
+                  <Button size="sm" variant="ghost" onClick={cancelEdit} className="flex-1">Отмена</Button>
                 </div>
               </div>
             )}

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { tasks, portals } from '@/lib/db/schema';
-import { eq, and, like, sql, lte, gte } from 'drizzle-orm';
+import { eq, and, like, sql, lte, gte, asc, desc } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
-import { createBitrix24Client } from '@/lib/bitrix/client';
+import { createBitrix24Client, Bitrix24Error } from '@/lib/bitrix/client';
 import { upsertTask } from '@/lib/bitrix/tasks';
 import { buildTaskAccessFilter, buildPortalTaskFilter } from '@/lib/portals/task-filter';
 import { hasPortalAccess } from '@/lib/portals/access';
+import { getBitrixUserIdForUser } from '@/lib/portals/mappings';
 import type { BitrixTask } from '@/types';
 
 /**
@@ -91,16 +92,17 @@ export async function GET(request: NextRequest) {
 
     const whereClause = and(...conditions);
 
-    // Map sortBy to SQL column name for ordering
-    const sortColumnMap: Record<string, string> = {
-      deadline: 'deadline',
-      createdDate: 'created_date',
-      changedDate: 'changed_date',
-      priority: 'priority',
-      title: 'title',
-      status: 'status',
-    };
-    const sortColumnName = sortColumnMap[sortBy] || 'changed_date';
+    // Map sortBy to Drizzle column reference (whitelist approach)
+    const sortColumnMap = {
+      deadline: tasks.deadline,
+      createdDate: tasks.createdDate,
+      changedDate: tasks.changedDate,
+      priority: tasks.priority,
+      title: tasks.title,
+      status: tasks.status,
+    } as const;
+    const sortColumn = sortColumnMap[sortBy as keyof typeof sortColumnMap] || tasks.changedDate;
+    const orderByClause = sortOrder === 'asc' ? asc(sortColumn) : desc(sortColumn);
 
     // Count total
     const countResult = db
@@ -127,8 +129,10 @@ export async function GET(request: NextRequest) {
         mark: tasks.mark,
         responsibleId: tasks.responsibleId,
         responsibleName: tasks.responsibleName,
+        responsiblePhoto: tasks.responsiblePhoto,
         creatorId: tasks.creatorId,
         creatorName: tasks.creatorName,
+        creatorPhoto: tasks.creatorPhoto,
         groupId: tasks.groupId,
         stageId: tasks.stageId,
         deadline: tasks.deadline,
@@ -153,7 +157,7 @@ export async function GET(request: NextRequest) {
       .from(tasks)
       .innerJoin(portals, eq(tasks.portalId, portals.id))
       .where(whereClause)
-      .orderBy(sql.raw(`tasks.${sortColumnName} ${sortOrder === 'asc' ? 'ASC' : 'DESC'}`))
+      .orderBy(orderByClause)
       .limit(limit)
       .offset(offset)
       .all();
@@ -233,29 +237,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Resolve RESPONSIBLE_ID: use provided, fallback to current user's bitrix mapping
+    let effectiveResponsibleId = responsibleId;
+    if (!effectiveResponsibleId) {
+      const bitrixUserId = getBitrixUserIdForUser(auth.user.userId, portalId);
+      if (bitrixUserId) {
+        effectiveResponsibleId = bitrixUserId;
+      }
+    }
+
     // Build Bitrix24 task fields
     const fields: Record<string, unknown> = {
       TITLE: title,
     };
     if (description) fields.DESCRIPTION = description;
-    if (responsibleId) fields.RESPONSIBLE_ID = responsibleId;
+    if (effectiveResponsibleId) fields.RESPONSIBLE_ID = effectiveResponsibleId;
     if (priority) fields.PRIORITY = priority;
     if (deadline) fields.DEADLINE = deadline;
     if (tags && Array.isArray(tags)) fields.TAGS = tags;
     if (groupId) fields.GROUP_ID = groupId;
 
     // Create task on Bitrix24
-    const client = createBitrix24Client(portalId);
-    const response = await client.call<{ task: BitrixTask }>('tasks.task.add', {
-      fields,
-    });
+    let createdTask: BitrixTask;
+    try {
+      const client = createBitrix24Client(portalId);
+      const response = await client.call<{ task?: BitrixTask; item?: BitrixTask }>('tasks.task.add', {
+        fields,
+      });
 
-    const createdTask = response.result?.task;
-    if (!createdTask) {
-      return NextResponse.json(
-        { error: 'Bitrix24', message: 'Failed to create task on Bitrix24' },
-        { status: 502 }
-      );
+      // Bitrix24 returns result.task (old format) or result.item (new format)
+      const taskResult = response.result?.task || response.result?.item;
+      if (!taskResult) {
+        return NextResponse.json(
+          { error: 'Bitrix24', message: 'Failed to create task on Bitrix24' },
+          { status: 502 }
+        );
+      }
+      createdTask = taskResult;
+    } catch (error) {
+      if (error instanceof Bitrix24Error) {
+        return NextResponse.json(
+          { error: 'Bitrix24', message: error.message },
+          { status: 502 }
+        );
+      }
+      throw error;
     }
 
     // Save to local DB
@@ -275,8 +301,10 @@ export async function POST(request: NextRequest) {
         mark: tasks.mark,
         responsibleId: tasks.responsibleId,
         responsibleName: tasks.responsibleName,
+        responsiblePhoto: tasks.responsiblePhoto,
         creatorId: tasks.creatorId,
         creatorName: tasks.creatorName,
+        creatorPhoto: tasks.creatorPhoto,
         groupId: tasks.groupId,
         stageId: tasks.stageId,
         deadline: tasks.deadline,

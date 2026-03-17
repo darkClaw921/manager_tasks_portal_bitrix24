@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AddPortalForm } from '@/components/portals/AddPortalForm';
 import { PortalList } from '@/components/portals/PortalList';
-import { usePortals, useUpdatePortal, useDisconnectPortal } from '@/hooks/usePortals';
+import { usePortals, useUpdatePortal, useDisconnectPortal, useSyncPortal } from '@/hooks/usePortals';
 import { usePortalStore } from '@/stores/portal-store';
 
 function PortalsContent() {
@@ -19,6 +19,7 @@ function PortalsContent() {
   const { data: portals, isLoading } = usePortals();
   const updatePortal = useUpdatePortal();
   const disconnectPortal = useDisconnectPortal();
+  const syncPortal = useSyncPortal();
   const setPortalsStore = usePortalStore((s) => s.setPortals);
 
   // Fetch current user to determine admin status
@@ -63,16 +64,25 @@ function PortalsContent() {
     try {
       await updatePortal.mutateAsync({ id, ...data });
     } catch {
-      setNotification({ type: 'error', message: 'Failed to update portal' });
+      setNotification({ type: 'error', message: 'Не удалось обновить портал' });
     }
   };
 
   const handleDisconnect = async (id: number) => {
     try {
       await disconnectPortal.mutateAsync(id);
-      setNotification({ type: 'success', message: 'Portal disconnected' });
+      setNotification({ type: 'success', message: 'Портал отключён' });
     } catch {
-      setNotification({ type: 'error', message: 'Failed to disconnect portal' });
+      setNotification({ type: 'error', message: 'Не удалось отключить портал' });
+    }
+  };
+
+  const handleSync = async (id: number) => {
+    try {
+      await syncPortal.mutateAsync(id);
+      setNotification({ type: 'success', message: 'Синхронизация завершена' });
+    } catch {
+      setNotification({ type: 'error', message: 'Ошибка синхронизации' });
     }
   };
 
@@ -165,6 +175,8 @@ function PortalsContent() {
               portals={activePortals}
               onUpdate={handleUpdate}
               onDisconnect={handleDisconnect}
+              showSync
+              onSync={handleSync}
               isAdmin={isAdmin}
             />
           )}
@@ -190,6 +202,8 @@ function PortalsContent() {
           ) : (
             <PortalList
               portals={activePortals}
+              showSync
+              onSync={handleSync}
               isAdmin={false}
             />
           )}

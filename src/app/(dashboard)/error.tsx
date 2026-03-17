@@ -26,21 +26,21 @@ export default function DashboardError({
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
           </svg>
         </div>
-        <h2 className="text-h3 font-bold text-foreground mb-2">Something went wrong</h2>
+        <h2 className="text-h3 font-bold text-foreground mb-2">Что-то пошло не так</h2>
         <p className="text-small text-text-secondary mb-6">
           {error.message || 'An unexpected error occurred. Please try again.'}
         </p>
         {error.digest && (
           <p className="text-xs text-text-muted mb-4 font-mono">
-            Error ID: {error.digest}
+            ID ошибки: {error.digest}
           </p>
         )}
         <div className="flex items-center justify-center gap-3">
           <Button variant="primary" onClick={reset}>
-            Try Again
+            Попробовать снова
           </Button>
           <Button variant="ghost" onClick={() => window.location.href = '/dashboard'}>
-            Go to Dashboard
+            На главную
           </Button>
         </div>
       </div>
