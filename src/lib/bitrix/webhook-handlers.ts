@@ -1,7 +1,8 @@
 import { db } from '@/lib/db';
 import { tasks, notifications, users } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
-import { fetchSingleTask, upsertTask } from './tasks';
+import { fetchSingleTask, upsertTask, isTaskRelevantToUsers } from './tasks';
+import { getMappedBitrixUserIds } from '@/lib/portals/mappings';
 import { syncComments } from './comments';
 import { syncChecklist } from './checklist';
 import { syncFiles } from './files';
@@ -245,6 +246,12 @@ async function handleTaskAdd(
     return;
   }
 
+  const mappedUserIds = getMappedBitrixUserIds(portal.id);
+  if (!isTaskRelevantToUsers(bitrixTask, mappedUserIds)) {
+    console.log(`[webhook-handler] ONTASKADD: Task ${bitrixTaskId} not relevant to mapped users, skipping`);
+    return;
+  }
+
   const localTaskId = upsertTask(bitrixTask, portal.id, portal.domain);
 
   // Sync related data
@@ -297,6 +304,20 @@ async function handleTaskUpdate(
   const bitrixTask = await fetchSingleTask(portal.id, bitrixTaskId);
   if (!bitrixTask) {
     console.error(`[webhook-handler] ONTASKUPDATE: Could not fetch task ${bitrixTaskId} from Bitrix24`);
+    return;
+  }
+
+  const mappedUserIds = getMappedBitrixUserIds(portal.id);
+  if (!isTaskRelevantToUsers(bitrixTask, mappedUserIds)) {
+    // Если задача была сохранена ранее но теперь нерелевантна — удалить
+    const existingTask = db.select({ id: tasks.id }).from(tasks)
+      .where(and(eq(tasks.portalId, portal.id), eq(tasks.bitrixTaskId, bitrixTaskId))).get();
+    if (existingTask) {
+      db.delete(tasks).where(eq(tasks.id, existingTask.id)).run();
+      console.log(`[webhook-handler] ONTASKUPDATE: Task ${bitrixTaskId} no longer relevant, deleted locally`);
+    } else {
+      console.log(`[webhook-handler] ONTASKUPDATE: Task ${bitrixTaskId} not relevant to mapped users, skipping`);
+    }
     return;
   }
 
@@ -428,6 +449,12 @@ async function handleCommentAdd(
     const bitrixTask = await fetchSingleTask(portal.id, bitrixTaskId);
     if (!bitrixTask) {
       console.error(`[webhook-handler] ONTASKCOMMENTADD: Could not fetch task ${bitrixTaskId} from Bitrix24`);
+      return;
+    }
+
+    const mappedUserIds = getMappedBitrixUserIds(portal.id);
+    if (!isTaskRelevantToUsers(bitrixTask, mappedUserIds)) {
+      console.log(`[webhook-handler] ONTASKCOMMENTADD: Task ${bitrixTaskId} not relevant to mapped users, skipping`);
       return;
     }
 

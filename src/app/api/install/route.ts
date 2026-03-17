@@ -56,6 +56,34 @@ export async function POST(request: NextRequest) {
       .where(eq(portals.memberId, memberId))
       .get();
 
+    // Check if Bitrix24 user is allowed (has mapping)
+    if (existingPortal && authId && domain) {
+      try {
+        const userResponse = await fetch(`https://${domain}/rest/user.current?auth=${authId}`);
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
+          const bitrixUserId = String(userData.result?.ID || '');
+
+          if (bitrixUserId) {
+            const { getMappedBitrixUserIds } = await import('@/lib/portals/mappings');
+            const mappedIds = getMappedBitrixUserIds(existingPortal.id);
+
+            // Only restrict if mappings exist (allow all if no mappings yet — first-time setup)
+            if (mappedIds.size > 0 && !mappedIds.has(bitrixUserId)) {
+              console.log(`[install] Access denied for Bitrix user ${bitrixUserId} on portal ${existingPortal.id}`);
+              return new NextResponse(getAccessDeniedHtml(), {
+                status: 200,
+                headers: { 'Content-Type': 'text/html; charset=utf-8' },
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[install] Failed to check user access:', error);
+        // Fail open — allow access if check fails
+      }
+    }
+
     if (existingPortal) {
       // Update portal with fresh tokens from installation
       const updates: Record<string, unknown> = {
@@ -118,6 +146,38 @@ export async function GET() {
 /**
  * HTML page that loads BX24 JS SDK and calls installFinish.
  */
+/**
+ * HTML page shown when a Bitrix24 user is not allowed to access the app.
+ */
+function getAccessDeniedHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskHub - Доступ запрещён</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; background: #f5f7fa; color: #333;
+    }
+    .container { text-align: center; padding: 40px; }
+    .icon { font-size: 48px; margin-bottom: 16px; }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; color: #dc2626; }
+    p { font-size: 14px; color: #666; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">&#128274;</div>
+    <h1>Доступ запрещён</h1>
+    <p>У вас нет доступа к приложению TaskHub. Обратитесь к администратору.</p>
+  </div>
+</body>
+</html>`;
+}
+
 function getInstallHtml(): string {
   return `<!DOCTYPE html>
 <html lang="ru">

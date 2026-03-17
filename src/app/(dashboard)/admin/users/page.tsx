@@ -73,9 +73,9 @@ export default function AdminUsersPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-h2 font-bold text-foreground">User Management</h1>
+          <h1 className="text-h2 font-bold text-foreground">Управление пользователями</h1>
           <p className="text-small text-text-secondary mt-1">
-            Manage users, assign roles, and monitor activity
+            Управление пользователями, назначение ролей и мониторинг активности
           </p>
         </div>
         {!showCreateForm && (

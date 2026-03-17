@@ -1,11 +1,12 @@
 import { db } from '@/lib/db';
 import { portals } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { fetchAllTasks, upsertTask, getPortalDomain } from './tasks';
+import { fetchAllTasks, upsertTask, getPortalDomain, isTaskRelevantToUsers } from './tasks';
 import { syncComments } from './comments';
 import { syncChecklist } from './checklist';
 import { syncFiles } from './files';
 import { fetchStages } from './stages';
+import { getMappedBitrixUserIds } from '@/lib/portals/mappings';
 
 /**
  * Full synchronization of tasks from a Bitrix24 portal.
@@ -43,9 +44,14 @@ export async function fullSync(portalId: number): Promise<{
   const bitrixTasks = await fetchAllTasks(portalId);
   console.log(`[sync] Fetched ${bitrixTasks.length} total tasks from portal ${portalId}`);
 
+  // Step 2.5: Filter tasks by mapped users
+  const mappedUserIds = getMappedBitrixUserIds(portalId);
+  const relevantTasks = bitrixTasks.filter(t => isTaskRelevantToUsers(t, mappedUserIds));
+  console.log(`[sync] Filtered to ${relevantTasks.length} relevant tasks (${bitrixTasks.length - relevantTasks.length} skipped)`);
+
   // Step 3 & 4: Upsert each task and sync related data
   let tasksCount = 0;
-  for (const bitrixTask of bitrixTasks) {
+  for (const bitrixTask of relevantTasks) {
     try {
       const localTaskId = upsertTask(bitrixTask, portalId, domain);
       const bitrixTaskId = parseInt(String(bitrixTask.ID), 10);
@@ -109,6 +115,12 @@ export async function syncSingleTask(
   const bitrixTask = await fetchSingleTask(portalId, bitrixTaskId);
 
   if (!bitrixTask) return null;
+
+  const mappedUserIds = getMappedBitrixUserIds(portalId);
+  if (!isTaskRelevantToUsers(bitrixTask, mappedUserIds)) {
+    console.log(`[sync] Task ${bitrixTaskId} not relevant to mapped users, skipping`);
+    return null;
+  }
 
   const localTaskId = upsertTask(bitrixTask, portalId, domain);
 

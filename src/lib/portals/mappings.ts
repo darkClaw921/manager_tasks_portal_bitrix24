@@ -157,6 +157,20 @@ export function createMapping(
 }
 
 /**
+ * Get all mapped Bitrix24 user IDs for a portal.
+ * Returns a Set for O(1) lookup. No JOIN — only userBitrixMappings table.
+ * If no mappings exist, returns an empty Set.
+ */
+export function getMappedBitrixUserIds(portalId: number): Set<string> {
+  const rows = db
+    .select({ bitrixUserId: userBitrixMappings.bitrixUserId })
+    .from(userBitrixMappings)
+    .where(eq(userBitrixMappings.portalId, portalId))
+    .all();
+  return new Set(rows.map((r) => r.bitrixUserId));
+}
+
+/**
  * Delete a user-to-Bitrix24 mapping for a specific user on a portal.
  *
  * @returns true if a mapping was deleted, false if none existed

@@ -213,6 +213,37 @@ export function mapBitrixTaskToLocal(
 }
 
 /**
+ * Check whether a Bitrix24 task is relevant to the given set of mapped user IDs.
+ * A task is relevant if any of its roles (responsible, creator, accomplice, auditor)
+ * belong to the mapped users.
+ *
+ * If mappedUserIds is empty (no mappings configured), returns true — no filtering applied.
+ */
+export function isTaskRelevantToUsers(
+  task: BitrixTask,
+  mappedUserIds: Set<string>
+): boolean {
+  if (mappedUserIds.size === 0) return true;
+
+  if (task.RESPONSIBLE_ID && mappedUserIds.has(String(task.RESPONSIBLE_ID))) return true;
+  if (task.CREATED_BY && mappedUserIds.has(String(task.CREATED_BY))) return true;
+
+  if (Array.isArray(task.ACCOMPLICES)) {
+    for (const id of task.ACCOMPLICES) {
+      if (mappedUserIds.has(String(id))) return true;
+    }
+  }
+
+  if (Array.isArray(task.AUDITORS)) {
+    for (const id of task.AUDITORS) {
+      if (mappedUserIds.has(String(id))) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Upsert a task in the local database.
  * Returns the local task ID.
  */

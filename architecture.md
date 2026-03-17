@@ -126,6 +126,7 @@ src/
 │       │   ├── daily/route.ts     # GET: get/generate daily report (?date=YYYY-MM-DD); POST: force-regenerate daily report
 │       │   ├── weekly/route.ts    # GET: get/generate weekly report (?week=YYYY-WNN); POST: force-regenerate weekly report
 │       │   └── chat/route.ts      # POST: AI chat (streaming response); GET: chat history; DELETE: clear chat history
+│       ├── install/route.ts        # POST: Bitrix24 app install callback — saves tokens, checks user access via user.current REST API + getMappedBitrixUserIds (returns access denied HTML if user not in mapping, fail-open on errors, skips check if no mappings); GET: serves install HTML page. Functions: getAccessDeniedHtml() — static HTML for denied access; getInstallHtml() — HTML with BX24.installFinish()
 │       └── oauth/callback/route.ts # GET: OAuth callback from Bitrix24 — verifies state JWT, exchanges code for tokens, creates/updates portal (unique by memberId), auto-creates user_portal_access for connecting admin, triggers event registration + stages fetch
 ├── components/
 │   ├── ui/
@@ -216,16 +217,16 @@ src/
 │   │   ├── events.ts              # registerEventHandlers(portalId): batch event.bind for ONTASKADD/UPDATE/DELETE/COMMENTADD; unregisterEventHandlers: batch event.unbind
 │   │   ├── stages.ts              # fetchStages(portalId, entityId): calls task.stages.get, upserts to DB; getStagesForPortal(portalId, entityId?): local DB query sorted by sort
 │   │   ├── stage-settings.ts     # Custom stage CRUD + Bitrix24 mapping: getCustomStages(portalId) with mappings JOIN, createCustomStage, updateCustomStage, deleteCustomStage (cascade), mapBitrixStageToCustom, unmapBitrixStage, getCustomStageForTask, reorderCustomStages, getCustomStageById, getCustomStageMappingsForPortal
-│   │   ├── tasks.ts               # TASK_SELECT_FIELDS, mapBitrixStatus/mapStatusToBitrix, generateBitrixUrl, mapBitrixTaskToLocal, upsertTask, fetchAllTasks (pagination), fetchSingleTask, getPortalDomain
+│   │   ├── tasks.ts               # TASK_SELECT_FIELDS, mapBitrixStatus/mapStatusToBitrix, generateBitrixUrl, mapBitrixTaskToLocal, isTaskRelevantToUsers (checks task roles against mapped user IDs Set, returns true if empty set), upsertTask, fetchAllTasks (pagination), fetchSingleTask, getPortalDomain
 │   │   ├── users.ts               # fetchBitrixUsers(portalId): paginated user.get API (50/page); searchBitrixUsers(portalId, query): user.get with FIND filter
 │   │   ├── comments.ts            # mapBitrixCommentToLocal, fetchComments, syncComments, addComment (task.commentitem.add)
 │   │   ├── checklist.ts           # mapBitrixChecklistItemToLocal, fetchChecklist, syncChecklist, addChecklistItem, toggleChecklistItem (complete/renew), deleteChecklistItem
 │   │   ├── files.ts               # mapBitrixFileToLocal, fetchFiles, syncFiles
-│   │   ├── sync.ts                # fullSync(portalId): stages + all tasks with pagination + comments/checklist/files per task + update last_sync_at; syncSingleTask(portalId, bitrixTaskId)
-│   │   └── webhook-handlers.ts    # handleWebhookEvent dispatcher + handlers: handleTaskAdd, handleTaskUpdate, handleTaskDelete, handleCommentAdd, handleCommentUpdate; createNotification helper; notifyUser() checks notify_* flags; notifyRecipients() resolves multi-user dispatch via notification-resolver; PortalInfo is { id, domain } (no userId)
+│   │   ├── sync.ts                # fullSync(portalId): stages + all tasks with pagination + comments/checklist/files per task + update last_sync_at; фильтрует задачи по маппингу пользователей (задачи без замапленных участников пропускаются через isTaskRelevantToUsers). syncSingleTask(portalId, bitrixTaskId): фильтрует задачу по маппингу — нерелевантные задачи не сохраняются
+│   │   └── webhook-handlers.ts    # handleWebhookEvent dispatcher + handlers: handleTaskAdd, handleTaskUpdate, handleTaskDelete, handleCommentAdd, handleCommentUpdate; handleTaskAdd/handleTaskUpdate/handleCommentAdd проверяют релевантность задачи замапленным пользователям через isTaskRelevantToUsers (нерелевантные пропускаются); handleTaskUpdate удаляет локальную задачу если она стала нерелевантна; createNotification helper; notifyUser() checks notify_* flags; notifyRecipients() resolves multi-user dispatch via notification-resolver; PortalInfo is { id, domain } (no userId)
 │   ├── portals/
 │   │   ├── access.ts              # Portal access CRUD: getUserPortals, getPortalUsers, hasPortalAccess, isPortalAdmin, getPortalAccess, grantPortalAccess, updatePortalAccess, revokePortalAccess (last-admin protection), getAccessiblePortalIds
-│   │   ├── mappings.ts            # User-Bitrix24 mapping CRUD: getBitrixUserIdForUser, getUserForBitrixUserId, getUsersForBitrixUserIds (bulk inArray), getAllMappingsForPortal (with user info JOIN), createMapping, deleteMapping, updateMapping
+│   │   ├── mappings.ts            # User-Bitrix24 mapping CRUD: getBitrixUserIdForUser, getUserForBitrixUserId, getUsersForBitrixUserIds (bulk inArray), getAllMappingsForPortal (with user info JOIN), getMappedBitrixUserIds (returns Set<string> of all mapped bitrix user IDs for portal, no JOIN), createMapping, deleteMapping, updateMapping
 │   │   ├── notification-resolver.ts # Notification recipient resolution: resolveNotificationRecipients(portalId, task) — collects bitrix user IDs from task, maps to app users, filters by can_see_* permissions, fallback to portal admin; resolveRecipientsForMention(portalId, bitrixUserIds) — maps mentioned bitrix IDs to app users without permission filtering
 │   │   └── task-filter.ts         # Task access filtering: buildTaskAccessFilter(userId) — builds parameterized SQL WHERE using Drizzle ORM operators (eq, like, or, and) based on user_portal_access permissions + user_bitrix_mappings; buildPortalTaskFilter(userId, portalId) — single portal variant; returns SQL type; uses like() for JSON array fields (accomplices, auditors); getAccessiblePortalIds(userId) — returns portal ID list
 │   ├── calendar/
@@ -430,8 +431,8 @@ Defined in [globals.css](./src/app/globals.css) via CSS variables and `@theme in
 
 ### Task Sync ([`lib/bitrix/sync.ts`](./src/lib/bitrix/sync.ts))
 
-- `fullSync(portalId)` - stages + all tasks (paginated by 50) + comments/checklist/files per task + update last_sync_at
-- `syncSingleTask(portalId, bitrixTaskId)` - fetch and upsert single task with related data (for webhooks)
+- `fullSync(portalId)` - stages + all tasks (paginated by 50) + comments/checklist/files per task + update last_sync_at; фильтрует задачи по маппингу пользователей через `getMappedBitrixUserIds` + `isTaskRelevantToUsers` (задачи без замапленных участников пропускаются, не сохраняются в БД)
+- `syncSingleTask(portalId, bitrixTaskId)` - fetch and upsert single task with related data (for webhooks); фильтрует задачу по маппингу — нерелевантные задачи не сохраняются
 - Helper modules: [tasks.ts](./src/lib/bitrix/tasks.ts) (mapping, upsert, fetch), [comments.ts](./src/lib/bitrix/comments.ts), [checklist.ts](./src/lib/bitrix/checklist.ts), [files.ts](./src/lib/bitrix/files.ts)
 - Bitrix24 status mapping: 1=NEW, 2=PENDING, 3=IN_PROGRESS, 4=SUPPOSEDLY_COMPLETED, 5=COMPLETED, 6=DEFERRED
 - `bitrix_url` generation: `/workgroups/group/{groupId}/tasks/task/view/{taskId}/` for group tasks, `/company/personal/user/{userId}/tasks/task/view/{taskId}/` otherwise
@@ -501,10 +502,10 @@ Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQL
 
 | Handler | Trigger | Action |
 |---------|---------|--------|
-| `handleTaskAdd` | ONTASKADD | Fetch full task via `tasks.task.get`, upsert to SQLite, sync comments/checklist/files, resolve recipients via `resolveNotificationRecipients`, push `task_add` notification to each recipient |
-| `handleTaskUpdate` | ONTASKUPDATE | Fetch updated task, upsert, sync comments/checklist, resolve recipients, push `task_update` notification to each recipient |
+| `handleTaskAdd` | ONTASKADD | Fetch full task via `tasks.task.get`, проверяет релевантность через `isTaskRelevantToUsers` (нерелевантные пропускаются), upsert to SQLite, sync comments/checklist/files, resolve recipients via `resolveNotificationRecipients`, push `task_add` notification to each recipient |
+| `handleTaskUpdate` | ONTASKUPDATE | Fetch updated task, проверяет релевантность через `isTaskRelevantToUsers` — если нерелевантна, удаляет локальную копию из SQLite; если релевантна: upsert, sync comments/checklist, resolve recipients, push `task_update` notification to each recipient |
 | `handleTaskDelete` | ONTASKDELETE | Find local task, resolve recipients from local task data, push `task_delete` notification to each, delete from SQLite (cascades) |
-| `handleCommentAdd` | ONTASKCOMMENTADD | Find/create local task, sync comments, resolve recipients, push `comment_add` notification to each, trigger mention detection |
+| `handleCommentAdd` | ONTASKCOMMENTADD | Find/create local task, проверяет релевантность через `isTaskRelevantToUsers` при создании задачи (нерелевантные пропускаются), sync comments, resolve recipients, push `comment_add` notification to each, trigger mention detection |
 | `handleCommentUpdate` | ONTASKCOMMENTUPDATE | Re-sync all comments for the task |
 
 - `PortalInfo` type: `{ id, domain }` (no userId — multi-user model)
