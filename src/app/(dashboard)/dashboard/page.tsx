@@ -59,7 +59,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* Page title */}
       <div>
-        <h1 className="text-h2 font-bold text-foreground">Dashboard</h1>
+        <h1 className="text-h2 font-bold text-foreground">Дашборд</h1>
         <p className="text-small text-text-secondary mt-1">
           Обзор задач со всех порталов
         </p>

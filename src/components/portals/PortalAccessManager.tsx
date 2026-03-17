@@ -300,7 +300,7 @@ function UserRow({
                 {user.firstName} {user.lastName}
               </p>
               <Badge variant={user.role === 'admin' ? 'primary' : 'default'} size="sm">
-                {user.role}
+                {user.role === 'admin' ? 'Администратор' : 'Наблюдатель'}
               </Badge>
             </div>
             <p className="text-small text-text-secondary truncate">{user.email}</p>

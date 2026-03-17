@@ -68,7 +68,7 @@ function AdminIcon() {
 }
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+  { href: '/dashboard', label: 'Дашборд', icon: <DashboardIcon /> },
   { href: '/tasks', label: 'Задачи', icon: <TasksIcon /> },
   { href: '/calendar', label: 'Календарь', icon: <CalendarIcon /> },
   { href: '/portals', label: 'Порталы', icon: <PortalsIcon /> },

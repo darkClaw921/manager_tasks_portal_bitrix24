@@ -53,9 +53,9 @@ function CogIcon() {
 }
 
 const BASE_TABS: TabConfig[] = [
-  { id: 'profile', label: 'Profile', icon: <UserIcon /> },
-  { id: 'notifications', label: 'Notifications', icon: <BellIcon /> },
-  { id: 'portals', label: 'Portals', icon: <GlobeIcon /> },
+  { id: 'profile', label: 'Профиль', icon: <UserIcon /> },
+  { id: 'notifications', label: 'Уведомления', icon: <BellIcon /> },
+  { id: 'portals', label: 'Порталы', icon: <GlobeIcon /> },
 ];
 
 const SYSTEM_TAB: TabConfig = { id: 'system', label: 'Система', icon: <CogIcon /> };
@@ -97,7 +97,7 @@ export default function SettingsPage() {
     <div className="max-w-5xl mx-auto">
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-h2 font-bold text-foreground">Settings</h1>
+        <h1 className="text-h2 font-bold text-foreground">Настройки</h1>
       </div>
 
       <div className="flex flex-col md:flex-row gap-6">
@@ -169,22 +169,22 @@ function ProfileTab({ user, onSaved }: { user: UserDetail; onSaved: () => void }
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const TIMEZONES = [
-    { value: 'Europe/Moscow', label: 'Moscow (UTC+3)' },
-    { value: 'Europe/London', label: 'London (UTC+0)' },
-    { value: 'Europe/Berlin', label: 'Berlin (UTC+1)' },
-    { value: 'Europe/Kiev', label: 'Kyiv (UTC+2)' },
-    { value: 'Asia/Yekaterinburg', label: 'Yekaterinburg (UTC+5)' },
-    { value: 'Asia/Novosibirsk', label: 'Novosibirsk (UTC+7)' },
-    { value: 'Asia/Vladivostok', label: 'Vladivostok (UTC+10)' },
-    { value: 'America/New_York', label: 'New York (UTC-5)' },
-    { value: 'America/Los_Angeles', label: 'Los Angeles (UTC-8)' },
-    { value: 'Asia/Tokyo', label: 'Tokyo (UTC+9)' },
-    { value: 'Asia/Shanghai', label: 'Shanghai (UTC+8)' },
+    { value: 'Europe/Moscow', label: 'Москва (UTC+3)' },
+    { value: 'Europe/London', label: 'Лондон (UTC+0)' },
+    { value: 'Europe/Berlin', label: 'Берлин (UTC+1)' },
+    { value: 'Europe/Kiev', label: 'Киев (UTC+2)' },
+    { value: 'Asia/Yekaterinburg', label: 'Екатеринбург (UTC+5)' },
+    { value: 'Asia/Novosibirsk', label: 'Новосибирск (UTC+7)' },
+    { value: 'Asia/Vladivostok', label: 'Владивосток (UTC+10)' },
+    { value: 'America/New_York', label: 'Нью-Йорк (UTC-5)' },
+    { value: 'America/Los_Angeles', label: 'Лос-Анджелес (UTC-8)' },
+    { value: 'Asia/Tokyo', label: 'Токио (UTC+9)' },
+    { value: 'Asia/Shanghai', label: 'Шанхай (UTC+8)' },
   ];
 
   const LANGUAGES = [
-    { value: 'ru', label: 'Russian' },
-    { value: 'en', label: 'English' },
+    { value: 'ru', label: 'Русский' },
+    { value: 'en', label: 'Английский' },
   ];
 
   const handleSave = async (e: React.FormEvent) => {
@@ -210,7 +210,7 @@ function ProfileTab({ user, onSaved }: { user: UserDetail; onSaved: () => void }
         throw new Error(data.message || 'Не удалось сохранить');
       }
 
-      setMessage({ type: 'success', text: 'Profile updated successfully' });
+      setMessage({ type: 'success', text: 'Профиль успешно обновлён' });
       setTimeout(() => setMessage(null), 4000);
       onSaved();
     } catch (err) {
@@ -222,7 +222,7 @@ function ProfileTab({ user, onSaved }: { user: UserDetail; onSaved: () => void }
 
   return (
     <div className="bg-surface rounded-card border border-border p-6">
-      <h2 className="text-h3 font-semibold mb-4">Profile</h2>
+      <h2 className="text-h3 font-semibold mb-4">Профиль</h2>
 
       {message && (
         <div
@@ -238,13 +238,13 @@ function ProfileTab({ user, onSaved }: { user: UserDetail; onSaved: () => void }
       <form onSubmit={handleSave} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <InputField
-            label="First name"
+            label="Имя"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
             required
           />
           <InputField
-            label="Last name"
+            label="Фамилия"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             required
@@ -252,7 +252,7 @@ function ProfileTab({ user, onSaved }: { user: UserDetail; onSaved: () => void }
         </div>
 
         <InputField
-          label="Email"
+          label="Эл. почта"
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -261,13 +261,13 @@ function ProfileTab({ user, onSaved }: { user: UserDetail; onSaved: () => void }
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <SelectField
-            label="Timezone"
+            label="Часовой пояс"
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
             options={TIMEZONES}
           />
           <SelectField
-            label="Language"
+            label="Язык"
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
             options={LANGUAGES}
@@ -482,17 +482,17 @@ function PortalsTab() {
   const handleSync = async (id: number) => {
     try {
       await syncPortal.mutateAsync(id);
-      setMessage({ type: 'success', text: 'Sync completed successfully' });
+      setMessage({ type: 'success', text: 'Синхронизация завершена успешно' });
       setTimeout(() => setMessage(null), 3000);
     } catch {
-      setMessage({ type: 'error', text: 'Sync failed. Please try again.' });
+      setMessage({ type: 'error', text: 'Ошибка синхронизации. Попробуйте ещё раз.' });
     }
   };
 
   if (isLoading) {
     return (
       <div className="bg-surface rounded-card border border-border p-6">
-        <h2 className="text-h3 font-semibold mb-4">Portals</h2>
+        <h2 className="text-h3 font-semibold mb-4">Порталы</h2>
         <div className="space-y-3">
           {[1, 2].map((i) => (
             <div key={i} className="flex items-center gap-3 p-3 rounded-input border border-border animate-pulse">
@@ -516,12 +516,12 @@ function PortalsTab() {
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 mx-auto text-text-muted mb-3">
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
         </svg>
-        <h3 className="text-small font-medium text-foreground mb-1">No portals connected</h3>
+        <h3 className="text-small font-medium text-foreground mb-1">Порталы не подключены</h3>
         <p className="text-xs text-text-secondary mb-4">
-          Connect a Bitrix24 portal to start managing tasks
+          Подключите портал Bitrix24, чтобы начать управлять задачами
         </p>
         <Button variant="primary" size="sm" onClick={() => window.location.href = '/portals'}>
-          Connect Portal
+          Подключить портал
         </Button>
       </div>
     );

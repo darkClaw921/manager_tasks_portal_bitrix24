@@ -92,9 +92,9 @@ function PortalsContent() {
     return (
       <div className="max-w-5xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-h2 font-bold text-foreground">Portals</h1>
+          <h1 className="text-h2 font-bold text-foreground">Порталы</h1>
           <p className="text-small text-text-secondary mt-1">
-            Connect and manage your Bitrix24 portals
+            Подключение и управление порталами Bitrix24
           </p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -109,11 +109,11 @@ function PortalsContent() {
     <div className="max-w-5xl mx-auto">
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-h2 font-bold text-foreground">Portals</h1>
+        <h1 className="text-h2 font-bold text-foreground">Порталы</h1>
         <p className="text-small text-text-secondary mt-1">
           {isAdmin
-            ? 'Connect and manage your Bitrix24 portals'
-            : 'Your assigned Bitrix24 portals'}
+            ? 'Подключение и управление порталами Bitrix24'
+            : 'Ваши назначенные порталы Bitrix24'}
         </p>
       </div>
 
@@ -157,7 +157,7 @@ function PortalsContent() {
           {/* Right: Connected portals list */}
           {isLoading ? (
             <div className="bg-surface rounded-card border border-border p-6">
-              <h2 className="text-h3 font-semibold mb-4">Connected portals</h2>
+              <h2 className="text-h3 font-semibold mb-4">Подключённые порталы</h2>
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="flex items-center gap-3 p-3 rounded-input border border-border animate-pulse">
@@ -186,7 +186,7 @@ function PortalsContent() {
         <div className="max-w-2xl">
           {isLoading ? (
             <div className="bg-surface rounded-card border border-border p-6">
-              <h2 className="text-h3 font-semibold mb-4">Your portals</h2>
+              <h2 className="text-h3 font-semibold mb-4">Ваши порталы</h2>
               <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="flex items-center gap-3 p-3 rounded-input border border-border animate-pulse">
@@ -219,9 +219,9 @@ export default function PortalsPage() {
       fallback={
         <div className="max-w-5xl mx-auto">
           <div className="mb-6">
-            <h1 className="text-h2 font-bold text-foreground">Portals</h1>
+            <h1 className="text-h2 font-bold text-foreground">Порталы</h1>
             <p className="text-small text-text-secondary mt-1">
-              Connect and manage your Bitrix24 portals
+              Подключение и управление порталами Bitrix24
             </p>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
