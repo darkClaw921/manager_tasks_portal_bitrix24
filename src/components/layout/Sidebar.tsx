@@ -6,14 +6,8 @@ import { PortalIndicator } from '@/components/ui/PortalIndicator';
 import { Avatar } from '@/components/ui/Avatar';
 import { useUIStore } from '@/stores/ui-store';
 import { usePortalStore } from '@/stores/portal-store';
+import { usePortals } from '@/hooks/usePortals';
 import { cn } from '@/lib/utils';
-
-/** Mock portals for Phase 2 (replaced with real data in Phase 3) */
-const MOCK_PORTALS = [
-  { id: 1, name: 'Portal One', color: '#8B5CF6' },
-  { id: 2, name: 'Portal Two', color: '#06B6D4' },
-  { id: 3, name: 'Portal Three', color: '#F97316' },
-];
 
 /** SVG icons for navigation items */
 function DashboardIcon() {
@@ -86,9 +80,9 @@ const ADMIN_NAV_ITEM = { href: '/admin/users', label: 'Пользователи'
 
 export function Sidebar() {
   const { sidebarOpen, setSidebarOpen } = useUIStore();
-  const portals = usePortalStore((s) => s.portals);
   const activePortalId = usePortalStore((s) => s.activePortalId);
   const setActivePortalId = usePortalStore((s) => s.setActivePortalId);
+  const { data: portals } = usePortals();
   const [currentUser, setCurrentUser] = useState<{ name: string; email: string; isAdmin: boolean } | null>(null);
 
   // Fetch current user info
@@ -107,10 +101,7 @@ export function Sidebar() {
       .catch(() => {});
   }, []);
 
-  // Use mock portals if no real portals exist yet
-  const displayPortals = portals.length > 0
-    ? portals.map((p) => ({ id: p.id, name: p.name, color: p.color }))
-    : MOCK_PORTALS;
+  const displayPortals = (portals ?? []).map((p) => ({ id: p.id, name: p.name || p.domain, color: p.color }));
 
   // Close sidebar on desktop resize
   useEffect(() => {
