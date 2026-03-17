@@ -24,7 +24,7 @@ ENV_FILE="$PROJECT_DIR/.env.production"
 
 # Read PORT from .env.production, default to 3000
 if [ -f "$ENV_FILE" ]; then
-    PORT=$(grep "^PORT=" "$ENV_FILE" | tail -1 | cut -d= -f2-)
+    PORT=$(grep "^PORT=" "$ENV_FILE" | tail -1 | cut -d= -f2- || true)
 fi
 PORT="${PORT:-3000}"
 ATTACHED=false
