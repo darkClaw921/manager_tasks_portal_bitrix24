@@ -22,7 +22,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="$PROJECT_DIR/.env.production"
 
-PORT=3000
+# Read PORT from .env.production, default to 3000
+if [ -f "$ENV_FILE" ]; then
+    PORT=$(grep "^PORT=" "$ENV_FILE" | tail -1 | cut -d= -f2-)
+fi
+PORT="${PORT:-3000}"
 ATTACHED=false
 COMMAND="up"
 
