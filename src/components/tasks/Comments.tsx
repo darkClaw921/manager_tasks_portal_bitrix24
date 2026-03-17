@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { useAddComment } from '@/hooks/useTask';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -80,6 +80,15 @@ function SendIcon() {
 export function Comments({ taskId, comments }: CommentsProps) {
   const [message, setMessage] = useState('');
   const addComment = useAddComment();
+  const commentsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to the bottom when comments load or new comment is added
+  useEffect(() => {
+    const container = commentsContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [comments.length]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -107,7 +116,7 @@ export function Comments({ taskId, comments }: CommentsProps) {
       </h3>
 
       {/* Comment list — scrollable container */}
-      <div className="max-h-[500px] overflow-y-auto rounded-lg border border-border">
+      <div ref={commentsContainerRef} className="max-h-[500px] overflow-y-auto rounded-lg border border-border">
         {comments.length === 0 ? (
           <p className="text-small text-text-muted py-4 px-3">Комментариев пока нет</p>
         ) : (
