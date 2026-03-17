@@ -1,5 +1,5 @@
 import { db } from './index';
-import { users } from './schema';
+import { users, appSettings } from './schema';
 import { eq } from 'drizzle-orm';
 import { hashPassword } from '../auth/password';
 
@@ -60,4 +60,31 @@ export async function seedAdmin(): Promise<void> {
   } catch (error) {
     console.error('[seed] Error seeding admin user:', error);
   }
+
+  // Seed default app settings
+  seedDefaultSettings();
+}
+
+/**
+ * Seed default application settings.
+ * Uses INSERT OR IGNORE to avoid overwriting existing values.
+ */
+function seedDefaultSettings(): void {
+  const defaults: { key: string; value: string }[] = [
+    { key: 'work_hours_start', value: '9' },
+    { key: 'work_hours_end', value: '18' },
+  ];
+
+  for (const { key, value } of defaults) {
+    try {
+      db.insert(appSettings)
+        .values({ key, value })
+        .onConflictDoNothing({ target: appSettings.key })
+        .run();
+    } catch (err) {
+      console.error(`[seed] Error seeding setting "${key}":`, err);
+    }
+  }
+
+  console.log('[seed] Default app settings seeded.');
 }

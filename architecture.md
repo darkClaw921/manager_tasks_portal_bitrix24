@@ -56,7 +56,7 @@ src/
 │   │   │   └── [id]/settings/
 │   │   │       └── page.tsx       # Portal settings page: 4 tabs (General, Users, User Mapping, Kanban Stages), URL query param sync (?tab=), breadcrumb navigation, admin-only access, lazy-loaded tab components via dynamic(), Suspense boundary
 │   │   ├── settings/
-│   │   │   ├── page.tsx           # Settings page: 3 tabs (Profile, Notifications, Portals), all functional with save
+│   │   │   ├── page.tsx           # Settings page: 3 tabs (Profile, Notifications, Portals) + admin-only 4th tab (Система → SystemSettings), all functional with save
 │   │   │   └── loading.tsx        # Settings skeleton: tabs + form fields
 │   │   ├── calendar/
 │   │   │   ├── page.tsx           # Calendar page: CalendarHeader with view tabs (Неделя/Команда/Слоты), WeeklyView for week, TeamDayView for team-day, FreeSlotsView for free-slots, "Создать задачу" button via useUIStore
@@ -119,6 +119,8 @@ src/
 │       │   ├── unread-count/route.ts # GET: count of unread notifications
 │       │   ├── read-all/route.ts  # POST: mark all notifications as read
 │       │   └── subscribe/route.ts # POST: save push subscription; DELETE: remove push subscription
+│       ├── settings/
+│       │   └── route.ts           # GET: all settings as {key: value} (auth required); PATCH: update work hours {work_hours_start?, work_hours_end?} (admin only, validates 0-23/1-24, start<end)
 │       ├── reports/
 │       │   ├── route.ts           # GET: paginated list of user's AI reports (?type, ?page, ?limit)
 │       │   ├── daily/route.ts     # GET: get/generate daily report (?date=YYYY-MM-DD); POST: force-regenerate daily report
@@ -178,26 +180,29 @@ src/
 │   │   ├── TeamMemberHeader.tsx   # Column header for team member: Avatar (sm) + name (12px semibold) + position/email (10px secondary), truncated text, min-w 120px
 │   │   ├── TeamDayView.tsx       # Team day view: one column per team member, tasks grouped by responsibleId, overlap resolution per member, NowIndicator on today, loading skeleton, error state, empty state (no members + no tasks), hidden tasks info badge. Uses useTeamDay hook, horizontal scroll for mobile
 │   │   ├── ParticipantSelector.tsx # Horizontal row of selectable participant chips: "Участники" label, all/count toggle, member chips with Avatar (24px) + name, selected/unselected states, horizontal scroll
-│   │   ├── AvailabilityGrid.tsx  # Color-coded availability grid (Mon-Fri, 09-18): time column + 5 day columns, busy blocks colored by getBusyLevel (green=free, zinc shades=busy), legend at bottom
+│   │   ├── AvailabilityGrid.tsx  # Color-coded availability grid (Mon-Fri): time column + 5 day columns, busy blocks colored by getBusyLevel (green=free, zinc shades=busy), legend at bottom; accepts optional workHours prop for custom range (defaults to WORK_HOURS 9-18)
 │   │   ├── SlotCard.tsx          # Recommended free slot card: date + time range + duration, "Забронировать" button, best slot green highlighting, Russian date formatting
-│   │   └── FreeSlotsView.tsx     # Complete free slots view: two-panel layout (left: participants + grid, right: recommended slots with duration tabs 30m/1h/2h), uses findFreeSlots, maps app-to-bitrix userIds, empty states
+│   │   └── FreeSlotsView.tsx     # Complete free slots view: two-panel layout (left: participants + grid, right: recommended slots with duration tabs 30m/1h/2h), uses findFreeSlots with workHours from useWorkHours(), maps app-to-bitrix userIds, passes workHours to AvailabilityGrid, empty states
 │   ├── reports/
 │   │   ├── index.ts               # Barrel export: ReportSummary, ReportChat
 │   │   ├── ReportSummary.tsx      # Report display: 4 StatCards (total/completed/inProgress/overdue), markdown content via react-markdown, regenerate button, loading skeleton, empty state
 │   │   └── ReportChat.tsx         # AI chat interface: message bubbles (user/assistant), streaming typing effect, suggestion chips, auto-scroll, markdown rendering, clear history, Enter to send
-│   └── admin/
-│       ├── index.ts               # Barrel export: UserTable, CreateUserForm, UserDetailModal
-│       ├── UserTable.tsx           # Admin user table: email, name, role badge, portal count, created date; inline edit, delete with confirm; mobile cards layout
-│       ├── CreateUserForm.tsx      # Create user form: email, password, first/last name, isAdmin checkbox; client validation
-│       └── UserDetailModal.tsx     # User detail modal: StatCards (tasks stats), portal list, account info; fetches from /api/users/[id]/stats and /portals
+│   ├── admin/
+│   │   ├── index.ts               # Barrel export: UserTable, CreateUserForm, UserDetailModal
+│   │   ├── UserTable.tsx           # Admin user table: email, name, role badge, portal count, created date; inline edit, delete with confirm; mobile cards layout
+│   │   ├── CreateUserForm.tsx      # Create user form: email, password, first/last name, isAdmin checkbox; client validation
+│   │   └── UserDetailModal.tsx     # User detail modal: StatCards (tasks stats), portal list, account info; fetches from /api/users/[id]/stats and /portals
+│   └── settings/
+│       └── SystemSettings.tsx     # System settings tab (admin only): work hours configuration with start (0-23) and end (1-24) select fields, client-side validation (start < end), useUpdateWorkHours mutation, toast notifications
 ├── lib/
+│   ├── settings.ts                # App settings CRUD: getSetting(key), setSetting(key, value), getAllSettings(), getWorkHours() -> {start, end}, setWorkHours(start, end); uses Drizzle ORM upsert (onConflictDoUpdate)
 │   ├── utils.ts                   # cn() utility: merge CSS class names, filtering falsy values
 │   ├── utils/
 │   │   └── sanitize.ts            # HTML sanitization via isomorphic-dompurify: sanitizeHtml() (whitelist of safe tags/attrs), sanitizeText() (strip all tags)
 │   ├── db/
-│   │   ├── index.ts               # DB initialization: creates SQLite connection, 14 tables, migrates existing portals to user_portal_access, runs seed
-│   │   ├── schema.ts              # Drizzle ORM schema: 14 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, notifications, ai_reports, ai_chat_messages)
-│   │   └── seed.ts                # Admin seed from env vars (ADMIN_EMAIL/PASSWORD)
+│   │   ├── index.ts               # DB initialization: creates SQLite connection, 15 tables (incl. app_settings), migrates existing portals to user_portal_access, runs seed
+│   │   ├── schema.ts              # Drizzle ORM schema: 15 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, notifications, ai_reports, ai_chat_messages, app_settings)
+│   │   └── seed.ts                # Admin seed from env vars (ADMIN_EMAIL/PASSWORD) + default app settings seed (work_hours_start=9, work_hours_end=18)
 │   ├── auth/
 │   │   ├── jwt.ts                 # JWT sign/verify with jose (HS256, 7d expiry); getJwtSecret() — environment-aware secret enforcement (throws in production if JWT_SECRET missing, warns+fallback in dev); shared by middleware.ts and oauth.ts
 │   │   ├── password.ts            # bcryptjs hash/verify
@@ -251,6 +256,7 @@ src/
 │   ├── useNotifications.ts        # TanStack Query hooks: useNotifications (paginated list), useUnreadCount (30s polling), useMarkAsRead, useMarkAllAsRead
 │   ├── usePushNotifications.ts    # Push notification hook: isSupported, isSubscribed, permission, subscribe(), unsubscribe(); handles service worker + PushManager lifecycle
 │   ├── useReports.ts             # TanStack Query hooks: useDailyReport(date?), useWeeklyReport(week?), useRegenerateDaily(), useRegenerateWeekly()
+│   ├── useWorkHours.ts           # TanStack Query hooks: useWorkHours() — fetches work hours from /api/settings (queryKey ['settings', 'work-hours'], staleTime 5min, defaults {start:9, end:18}); useUpdateWorkHours() — PATCH /api/settings mutation with cache invalidation
 │   └── useUsers.ts               # TanStack Query hooks: useUsers (admin list), useUser(id), useCreateUser, useUpdateUser, useDeleteUser; AdminUser and UserDetail types
 ├── stores/
 │   ├── ui-store.ts                # Zustand store: sidebarOpen, activeModal (createTask/filters), toggle/set/open/close actions
@@ -380,6 +386,7 @@ Reusable components for the calendar feature (weekly view, team day view, free s
 | [useNotifications](./src/hooks/useNotifications.ts) | `useNotifications(params)` - paginated notification list; `useUnreadCount()` - unread count with 30s polling; `useMarkAsRead()`, `useMarkAllAsRead()` - mutations |
 | [usePushNotifications](./src/hooks/usePushNotifications.ts) | `usePushNotifications()` - push subscription lifecycle: `isSupported`, `isSubscribed`, `permission`, `subscribe()`, `unsubscribe()` |
 | [useReports](./src/hooks/useReports.ts) | `useDailyReport(date?)`, `useWeeklyReport(week?)` - fetch/generate reports; `useRegenerateDaily()`, `useRegenerateWeekly()` - force-regenerate mutations |
+| [useWorkHours](./src/hooks/useWorkHours.ts) | `useWorkHours()` - fetch work hours ({start, end}, defaults 9-18, staleTime 5min); `useUpdateWorkHours()` - PATCH /api/settings mutation with cache invalidation |
 
 ---
 
@@ -643,10 +650,11 @@ Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQL
 
 ### Settings Page ([`(dashboard)/settings/page.tsx`](./src/app/(dashboard)/settings/page.tsx))
 
-3 tabs:
+3 tabs (+ 1 admin-only):
 - **Profile:** Edit first name, last name, email, timezone, language. Saved via PATCH `/api/users/[id]`
 - **Notifications:** 7 toggle switches (notifyTaskAdd, notifyTaskUpdate, notifyTaskDelete, notifyCommentAdd, notifyMention, notifyOverdue, notifyDigest), digest time picker, push notification enable/disable via `usePushNotifications` hook
 - **Portals:** Reuses PortalList component with sync/edit/disconnect actions
+- **Система** (admin only): Work hours configuration via [`SystemSettings`](./src/components/settings/SystemSettings.tsx) — start/end hour selects, validation, PATCH `/api/settings`
 
 ### Sidebar Admin Link
 
@@ -713,6 +721,13 @@ Each main route has a `loading.tsx` that renders appropriate skeletons:
 - Both user and assistant messages saved to `ai_chat_messages` table
 - `getChatHistory(userId, limit?)` - returns chat messages (oldest first)
 - `clearChatHistory(userId)` - deletes all chat messages
+
+### App Settings API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/settings` | GET | All settings as `{key: value}` (auth required) |
+| `/api/settings` | PATCH | Update work hours `{work_hours_start?, work_hours_end?}` (admin only, validates ranges) |
 
 ### AI Reports API
 

@@ -228,6 +228,13 @@ function initializeTables() {
       UNIQUE(portal_id, bitrix_stage_id)
     );
     CREATE UNIQUE INDEX IF NOT EXISTS portal_stage_mappings_portal_bitrix_unique ON portal_stage_mappings(portal_id, bitrix_stage_id);
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
   `);
 
   // Migration: create user_portal_access entries for existing portals

@@ -4,6 +4,7 @@ import { useMemo, useCallback } from 'react';
 import { useCalendarStore } from '@/stores/calendar-store';
 import { usePortalStore } from '@/stores/portal-store';
 import { useCalendarTasks, useTeamDay } from '@/hooks/useCalendarTasks';
+import { useWorkHours } from '@/hooks/useWorkHours';
 import { getWeekRange, findFreeSlots } from '@/lib/calendar/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -163,6 +164,7 @@ export function FreeSlotsView() {
   const setSelectedUserIds = useCalendarStore((s) => s.setSelectedUserIds);
   const setSlotDuration = useCalendarStore((s) => s.setSlotDuration);
   const activePortalId = usePortalStore((s) => s.activePortalId);
+  const { data: workHours } = useWorkHours();
 
   // Compute date ranges
   const date = useMemo(() => new Date(currentDate), [currentDate]);
@@ -196,8 +198,8 @@ export function FreeSlotsView() {
   // Compute free slots
   const freeSlots = useMemo(() => {
     if (bitrixUserIds.length === 0) return [];
-    return findFreeSlots(tasks, bitrixUserIds, weekRange, slotDuration);
-  }, [tasks, bitrixUserIds, weekRange, slotDuration]);
+    return findFreeSlots(tasks, bitrixUserIds, weekRange, slotDuration, workHours);
+  }, [tasks, bitrixUserIds, weekRange, slotDuration, workHours]);
 
   // Limit visible slots
   const visibleSlots = useMemo(
@@ -245,6 +247,7 @@ export function FreeSlotsView() {
             tasks={tasks}
             selectedUserIds={bitrixUserIds}
             weekStart={weekRange.start}
+            workHours={workHours}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center">

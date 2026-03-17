@@ -7,11 +7,14 @@ import type { TaskWithPortal, CalendarTask, FreeSlot } from '@/types';
 /** Pixels per hour on the time grid */
 export const HOUR_HEIGHT = 80;
 
-/** Working hours range */
+/** Display hours range (full day for the grid) */
+export const DISPLAY_HOURS = { start: 0, end: 24 } as const;
+
+/** Working hours range (used for free slots, availability grid) */
 export const WORK_HOURS = { start: 9, end: 18 } as const;
 
-/** Total grid height in pixels: (18 - 9) * 80 = 720 */
-const GRID_HEIGHT = (WORK_HOURS.end - WORK_HOURS.start) * HOUR_HEIGHT;
+/** Total grid height in pixels: (24 - 0) * 80 = 1920 */
+const GRID_HEIGHT = (DISPLAY_HOURS.end - DISPLAY_HOURS.start) * HOUR_HEIGHT;
 
 // ---------------------------------------------------------------------------
 // Date range helpers
@@ -54,11 +57,11 @@ export function getDayRange(date: Date): { start: Date; end: Date } {
 
 /**
  * Converts a Date to a vertical pixel offset on the time grid.
- * Result is clamped to [0, GRID_HEIGHT] (0 = 09:00, 720 = 18:00).
+ * Result is clamped to [0, GRID_HEIGHT] (0 = 00:00, 1920 = 24:00).
  */
 export function timeToPixelOffset(date: Date): number {
   const hours = date.getHours() + date.getMinutes() / 60;
-  const offset = (hours - WORK_HOURS.start) * HOUR_HEIGHT;
+  const offset = (hours - DISPLAY_HOURS.start) * HOUR_HEIGHT;
   return Math.max(0, Math.min(GRID_HEIGHT, offset));
 }
 
@@ -221,10 +224,11 @@ export function findFreeSlots(
   userIds: string[],
   dateRange: { start: Date; end: Date },
   slotDuration: number,
+  workHours: { start: number; end: number } = WORK_HOURS,
 ): FreeSlot[] {
   const slots: FreeSlot[] = [];
   const INCREMENT = 30; // minutes
-  const workMinutesPerDay = (WORK_HOURS.end - WORK_HOURS.start) * 60;
+  const workMinutesPerDay = (workHours.end - workHours.start) * 60;
   const slotsPerDay = workMinutesPerDay / INCREMENT;
 
   // Iterate day by day
@@ -246,7 +250,7 @@ export function findFreeSlots(
 
     for (let slotIdx = 0; slotIdx < slotsPerDay; slotIdx++) {
       const slotStart = new Date(current);
-      slotStart.setHours(WORK_HOURS.start, slotIdx * INCREMENT, 0, 0);
+      slotStart.setHours(workHours.start, slotIdx * INCREMENT, 0, 0);
       const slotEnd = new Date(slotStart);
       slotEnd.setMinutes(slotEnd.getMinutes() + INCREMENT);
 
@@ -275,9 +279,9 @@ export function findFreeSlots(
         const freeMinutes = (i - freeStart) * INCREMENT;
         if (freeMinutes >= slotDuration) {
           const startTime = new Date(current);
-          startTime.setHours(WORK_HOURS.start, freeStart * INCREMENT, 0, 0);
+          startTime.setHours(workHours.start, freeStart * INCREMENT, 0, 0);
           const endTime = new Date(current);
-          endTime.setHours(WORK_HOURS.start, i * INCREMENT, 0, 0);
+          endTime.setHours(workHours.start, i * INCREMENT, 0, 0);
 
           slots.push({
             date: new Date(current),
@@ -321,6 +325,7 @@ export function getBusyLevel(
   userIds: string[],
   day: Date,
   hour: number,
+  _workHours: { start: number; end: number } = WORK_HOURS,
 ): number {
   const slotStart = new Date(day);
   slotStart.setHours(hour, 0, 0, 0);

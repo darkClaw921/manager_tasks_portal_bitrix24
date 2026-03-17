@@ -227,6 +227,14 @@ export const aiChatMessages = sqliteTable('ai_chat_messages', {
   createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
 });
 
+// ==================== APP SETTINGS ====================
+export const appSettings = sqliteTable('app_settings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  key: text('key').notNull().unique(),
+  value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+});
+
 // ==================== Type Exports ====================
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -269,3 +277,6 @@ export type NewPortalCustomStage = typeof portalCustomStages.$inferInsert;
 
 export type PortalStageMapping = typeof portalStageMappings.$inferSelect;
 export type NewPortalStageMapping = typeof portalStageMappings.$inferInsert;
+
+export type AppSetting = typeof appSettings.$inferSelect;
+export type NewAppSetting = typeof appSettings.$inferInsert;

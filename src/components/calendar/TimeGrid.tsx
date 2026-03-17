@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { HOUR_HEIGHT, WORK_HOURS } from '@/lib/calendar/utils';
+import { HOUR_HEIGHT, DISPLAY_HOURS } from '@/lib/calendar/utils';
 import type { CalendarTask } from '@/types';
 import { NowIndicator } from './NowIndicator';
 
@@ -30,12 +30,12 @@ export interface TimeGridProps {
 // ---------------------------------------------------------------------------
 
 const GUTTER_WIDTH = 56; // px
-const TOTAL_HOURS = WORK_HOURS.end - WORK_HOURS.start; // 9
-const GRID_HEIGHT = TOTAL_HOURS * HOUR_HEIGHT; // 720
+const TOTAL_HOURS = DISPLAY_HOURS.end - DISPLAY_HOURS.start; // 24
+const GRID_HEIGHT = TOTAL_HOURS * HOUR_HEIGHT; // 1920
 
-/** Hour labels from 09:00 to 18:00 */
+/** Hour labels from 00:00 to 24:00 */
 const HOUR_LABELS = Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => {
-  const hour = WORK_HOURS.start + i;
+  const hour = DISPLAY_HOURS.start + i;
   return `${String(hour).padStart(2, '0')}:00`;
 });
 

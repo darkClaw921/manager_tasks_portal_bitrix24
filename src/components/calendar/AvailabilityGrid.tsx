@@ -13,16 +13,8 @@ export interface AvailabilityGridProps {
   tasks: TaskWithPortal[];
   selectedUserIds: string[];
   weekStart: Date;
+  workHours?: { start: number; end: number };
 }
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const HOURS = Array.from(
-  { length: WORK_HOURS.end - WORK_HOURS.start },
-  (_, i) => WORK_HOURS.start + i,
-);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,14 +53,15 @@ function groupBusyBlocks(
   tasks: TaskWithPortal[],
   userIds: string[],
   day: Date,
+  hours: number[],
 ): BusyBlock[] {
   if (userIds.length === 0) return [];
 
   const blocks: BusyBlock[] = [];
   let currentBlock: BusyBlock | null = null;
 
-  for (let i = 0; i < HOURS.length; i++) {
-    const level = getBusyLevel(tasks, userIds, day, HOURS[i]);
+  for (let i = 0; i < hours.length; i++) {
+    const level = getBusyLevel(tasks, userIds, day, hours[i]);
     const normalizedLevel =
       level >= userIds.length && userIds.length > 0 ? -1 : level;
 
@@ -181,26 +174,38 @@ export function AvailabilityGrid({
   tasks,
   selectedUserIds,
   weekStart,
+  workHours,
 }: AvailabilityGridProps) {
+  const effectiveWorkHours = workHours ?? WORK_HOURS;
+
+  const hours = useMemo(
+    () =>
+      Array.from(
+        { length: effectiveWorkHours.end - effectiveWorkHours.start },
+        (_, i) => effectiveWorkHours.start + i,
+      ),
+    [effectiveWorkHours.start, effectiveWorkHours.end],
+  );
+
   const workDays = useMemo(() => getWorkDays(weekStart), [weekStart]);
 
   const dayBlocks = useMemo(
     () =>
       workDays.map((day) => ({
         day,
-        blocks: groupBusyBlocks(tasks, selectedUserIds, day),
+        blocks: groupBusyBlocks(tasks, selectedUserIds, day, hours),
       })),
-    [workDays, tasks, selectedUserIds],
+    [workDays, tasks, selectedUserIds, hours],
   );
 
-  const totalHours = HOURS.length;
+  const totalHours = hours.length;
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex flex-1 min-h-0">
         {/* Time column */}
         <div className="shrink-0 w-12 flex flex-col pt-7">
-          {HOURS.map((hour) => (
+          {hours.map((hour) => (
             <div
               key={hour}
               className="flex-1 flex items-start justify-end pr-1"

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { timeToPixelOffset, WORK_HOURS } from '@/lib/calendar/utils';
+import { timeToPixelOffset } from '@/lib/calendar/utils';
 import { cn } from '@/lib/utils';
 
 export interface NowIndicatorProps {
@@ -11,7 +11,6 @@ export interface NowIndicatorProps {
 /**
  * Red horizontal line indicating the current time on the calendar grid.
  * Auto-updates position every 60 seconds.
- * Hidden when outside working hours (09:00-18:00).
  */
 export function NowIndicator({ className }: NowIndicatorProps) {
   const [now, setNow] = useState(() => new Date());
@@ -23,15 +22,6 @@ export function NowIndicator({ className }: NowIndicatorProps) {
 
     return () => clearInterval(interval);
   }, []);
-
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-  const totalHours = hours + minutes / 60;
-
-  // Hide outside working hours
-  if (totalHours < WORK_HOURS.start || totalHours >= WORK_HOURS.end) {
-    return null;
-  }
 
   const top = timeToPixelOffset(now);
 
