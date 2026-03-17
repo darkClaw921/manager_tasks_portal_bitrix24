@@ -21,6 +21,7 @@ export interface TaskRowData {
 export interface TaskRowProps {
   task: TaskRowData;
   className?: string;
+  onClick?: (taskId: number) => void;
 }
 
 const statusLabels: Record<string, string> = {
@@ -78,17 +79,16 @@ function formatDeadline(deadline: string): string {
   });
 }
 
-export function TaskRow({ task, className }: TaskRowProps) {
+export function TaskRow({ task, className, onClick }: TaskRowProps) {
   const overdue = isOverdue(task.deadline);
 
-  return (
-    <Link
-      href={`/tasks/${task.id}`}
-      className={cn(
-        'flex items-center gap-3 px-4 py-3 rounded-card border border-transparent bg-surface transition-colors hover:bg-background hover:border-border group',
-        className
-      )}
-    >
+  const sharedClassName = cn(
+    'flex items-center gap-3 px-4 py-3 rounded-card border border-transparent bg-surface transition-colors hover:bg-background hover:border-border group cursor-pointer',
+    className
+  );
+
+  const content = (
+    <>
       {/* Portal indicator */}
       <PortalIndicator color={task.portalColor} size="sm" />
 
@@ -123,6 +123,31 @@ export function TaskRow({ task, className }: TaskRowProps) {
           {formatDeadline(task.deadline)}
         </span>
       )}
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        className={sharedClassName}
+        onClick={() => onClick(task.id)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(task.id);
+          }
+        }}
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link href={`/tasks/${task.id}`} className={sharedClassName}>
+      {content}
     </Link>
   );
 }

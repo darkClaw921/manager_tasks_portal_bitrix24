@@ -39,7 +39,7 @@ src/
 │   ├── (auth)/
 │   │   └── login/page.tsx         # Login page: email+password form
 │   ├── (dashboard)/
-│   │   ├── layout.tsx             # Dashboard layout: Sidebar + Header + BottomTabs + CreateTaskModal
+│   │   ├── layout.tsx             # Dashboard layout: Sidebar + Header + BottomTabs + CreateTaskModal + FiltersModal + TaskSidePanel
 │   │   ├── error.tsx              # Dashboard error boundary: catches errors within dashboard, retry + navigate to dashboard
 │   │   ├── dashboard/
 │   │   │   ├── page.tsx           # Dashboard page: live StatCards (total/inProgress/completed/overdue) + TaskList with filters
@@ -135,7 +135,7 @@ src/
 │   │   ├── NavItem.tsx            # NavItem: sidebar nav link with icon, active state via usePathname()
 │   │   ├── SearchInput.tsx        # SearchInput: search icon, clear button, 300ms debounce via useDebounce hook
 │   │   ├── StatCard.tsx           # StatCard: title, value number, icon, trend (+/- with color), for dashboard stats
-│   │   ├── TaskRow.tsx            # TaskRow: portal dot, title, priority/status badges, avatar, deadline (overdue in red), links to /tasks/[id]
+│   │   ├── TaskRow.tsx            # TaskRow: portal dot, title, priority/status badges, avatar, deadline (overdue in red). Optional onClick prop: when provided renders div[role=button] calling onClick(taskId), otherwise renders Link to /tasks/[id]
 │   │   ├── InputField.tsx         # InputField: label + input + error, forwardRef, all HTML input types
 │   │   ├── SelectField.tsx        # SelectField: label + custom-styled select + error, forwardRef, options array
 │   │   ├── TextareaField.tsx      # TextareaField: label + textarea + error, auto-resize, min-height 100px, forwardRef
@@ -150,13 +150,14 @@ src/
 │   │   ├── Header.tsx             # Header: SearchInput (desktop), filters button, "Создать задачу" primary button, notification bell with real unread count + NotificationDropdown, avatar; mobile hamburger
 │   │   └── BottomTabs.tsx         # BottomTabs: 6 tabs (Задачи/Мои/Календарь/Порталы/AI/Настройки), SVG icons, active state, uses BottomTabBar wrapper
 │   ├── tasks/
-│   │   ├── index.ts               # Barrel export: TaskList, CreateTaskModal, TaskDetail, Comments, Checklist, Files
+│   │   ├── index.ts               # Barrel export: TaskList, CreateTaskModal, TaskDetail, Comments, Checklist, Files, TaskSidePanel
 │   │   ├── TaskList.tsx           # Task list: uses useTasks hook, portal filter (PortalIndicator chips), status tabs, search with debounce, pagination, skeleton loading, empty state
 │   │   ├── CreateTaskModal.tsx    # Modal: portal select, title, description, priority, deadline, responsible ID, tags; uses useCreateTask; opens via Zustand activeModal='createTask'
 │   │   ├── TaskDetail.tsx         # Full task detail: title, description (HTML), tags, right sidebar (status/priority/responsible/creator/deadline/time/accomplices/auditors/dates/Bitrix24 link), start/complete/delete buttons
 │   │   ├── Comments.tsx           # Comment list with author avatar + date + HTML content; add comment form with send button
 │   │   ├── Checklist.tsx          # Checklist: progress bar, checkbox toggle (optimistic), add/delete items, completed count/total
-│   │   └── Files.tsx              # File list: name, size, content type, download link
+│   │   ├── Files.tsx              # File list: name, size, content type, download link
+│   │   └── TaskSidePanel.tsx      # Slide-in side panel: overlay + animated panel (480px/full mobile), reads sidePanelTaskId from useUIStore, shows header (portal indicator, title, close, open full link), compact info (status/priority badges, responsible, deadline), scrollable comments chat (last 5, load earlier, sanitized HTML), comment input form with useAddComment, auto-scroll, Escape/backdrop/X close
 │   ├── notifications/
 │   │   ├── index.ts               # Barrel export: NotificationDropdown
 │   │   └── NotificationDropdown.tsx # Dropdown panel: type icons, relative time, portal indicator, skeleton loading, empty state, click-to-navigate + auto-mark-read, "Прочитать все" button
@@ -348,6 +349,7 @@ All tables use INTEGER PRIMARY KEY AUTOINCREMENT. Foreign keys enforce CASCADE o
 | [Comments](./src/components/tasks/Comments.tsx) | Comment list (author avatar, date, HTML content) + add comment form |
 | [Checklist](./src/components/tasks/Checklist.tsx) | Checklist with progress bar, toggle checkboxes (optimistic update), add/delete items |
 | [Files](./src/components/tasks/Files.tsx) | File list with name, size, content type, download link |
+| [TaskSidePanel](./src/components/tasks/TaskSidePanel.tsx) | Slide-in side panel overlay (480px, full on mobile). Reads `sidePanelTaskId` from `useUIStore`. Header with portal indicator, title, close button, "open full" link. Compact info: status/priority badges, responsible avatar, deadline. Scrollable comments chat (last 5, load earlier, sanitized HTML). Comment input form with `useAddComment`, auto-scroll to new comment. Close via Escape, backdrop click, X button |
 
 ### Calendar Components ([`components/calendar/`](./src/components/calendar/))
 
@@ -608,6 +610,7 @@ Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQL
 - **Integration points:**
   - [Comments.tsx](./src/components/tasks/Comments.tsx) — `comment.postMessage` sanitized before `dangerouslySetInnerHTML`
   - [TaskDetail.tsx](./src/components/tasks/TaskDetail.tsx) — `task.descriptionHtml` sanitized before `dangerouslySetInnerHTML`
+  - [TaskSidePanel.tsx](./src/components/tasks/TaskSidePanel.tsx) — `comment.postMessage` sanitized before `dangerouslySetInnerHTML`
 
 ---
 

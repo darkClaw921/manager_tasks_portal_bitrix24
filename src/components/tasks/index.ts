@@ -16,3 +16,5 @@ export type { ChecklistProps } from './Checklist';
 
 export { Files } from './Files';
 export type { FilesProps } from './Files';
+
+export { TaskSidePanel } from './TaskSidePanel';

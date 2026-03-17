@@ -23,9 +23,10 @@ const STATUS_TABS = [
 
 export interface TaskListProps {
   className?: string;
+  onTaskClick?: (taskId: number) => void;
 }
 
-export function TaskList({ className }: TaskListProps) {
+export function TaskList({ className, onTaskClick }: TaskListProps) {
   const { activePortalId, setActivePortalId } = usePortalStore();
   const { data: portals } = usePortals();
   const {
@@ -212,6 +213,7 @@ export function TaskList({ className }: TaskListProps) {
                 portalColor: task.portalColor,
                 portalName: task.portalName,
               }}
+              onClick={onTaskClick}
             />
           ))}
         </div>

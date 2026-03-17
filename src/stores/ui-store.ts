@@ -5,6 +5,7 @@ export type ActiveModal = 'createTask' | 'filters' | null;
 interface UIState {
   sidebarOpen: boolean;
   activeModal: ActiveModal;
+  sidePanelTaskId: number | null;
   globalSearch: string;
   globalStatusFilter: string;
   globalPriorityFilter: string;
@@ -14,6 +15,8 @@ interface UIState {
   setSidebarOpen: (open: boolean) => void;
   openModal: (modal: ActiveModal) => void;
   closeModal: () => void;
+  openSidePanel: (taskId: number) => void;
+  closeSidePanel: () => void;
   setGlobalSearch: (search: string) => void;
   setGlobalStatusFilter: (status: string) => void;
   setGlobalPriorityFilter: (priority: string) => void;
@@ -26,6 +29,7 @@ interface UIState {
 export const useUIStore = create<UIState>()((set, get) => ({
   sidebarOpen: false,
   activeModal: null,
+  sidePanelTaskId: null,
   globalSearch: '',
   globalStatusFilter: '',
   globalPriorityFilter: '',
@@ -35,6 +39,8 @@ export const useUIStore = create<UIState>()((set, get) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   openModal: (modal) => set({ activeModal: modal }),
   closeModal: () => set({ activeModal: null }),
+  openSidePanel: (taskId) => set({ sidePanelTaskId: taskId }),
+  closeSidePanel: () => set({ sidePanelTaskId: null }),
   setGlobalSearch: (search) => set({ globalSearch: search }),
   setGlobalStatusFilter: (status) => set({ globalStatusFilter: status }),
   setGlobalPriorityFilter: (priority) => set({ globalPriorityFilter: priority }),

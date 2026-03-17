@@ -5,6 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { BottomTabs } from '@/components/layout/BottomTabs';
 import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { FiltersModal } from '@/components/tasks/FiltersModal';
+import { TaskSidePanel } from '@/components/tasks/TaskSidePanel';
 
 export default function DashboardLayout({
   children,
@@ -35,6 +36,9 @@ export default function DashboardLayout({
 
       {/* Filters Modal - accessible from Header button */}
       <FiltersModal />
+
+      {/* Task Side Panel - self-manages visibility via Zustand store */}
+      <TaskSidePanel />
     </div>
   );
 }

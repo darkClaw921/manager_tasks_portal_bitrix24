@@ -106,47 +106,49 @@ export function Comments({ taskId, comments }: CommentsProps) {
         )}
       </h3>
 
-      {/* Comment list */}
-      {comments.length === 0 ? (
-        <p className="text-small text-text-muted py-4">Комментариев пока нет</p>
-      ) : (
-        <div className="space-y-3">
-          {comments.map((comment) => (
-            <div
-              key={comment.id}
-              className="flex gap-3 p-3 rounded-card bg-background"
-            >
-              <Avatar
-                name={comment.authorName || 'Unknown'}
-                src={comment.authorPhoto}
-                size="sm"
-                className="shrink-0 mt-0.5"
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-small font-medium text-foreground">
-                    {comment.authorName || 'Unknown'}
-                  </span>
-                  <span className="text-xs text-text-muted">
-                    {formatDate(comment.postDate)}
-                  </span>
+      {/* Comment list — scrollable container */}
+      <div className="max-h-[500px] overflow-y-auto rounded-lg border border-border">
+        {comments.length === 0 ? (
+          <p className="text-small text-text-muted py-4 px-3">Комментариев пока нет</p>
+        ) : (
+          <div className="space-y-3 p-3">
+            {comments.map((comment) => (
+              <div
+                key={comment.id}
+                className="flex gap-3 p-3 rounded-card bg-background"
+              >
+                <Avatar
+                  name={comment.authorName || 'Unknown'}
+                  src={comment.authorPhoto}
+                  size="sm"
+                  className="shrink-0 mt-0.5"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-small font-medium text-foreground">
+                      {comment.authorName || 'Unknown'}
+                    </span>
+                    <span className="text-xs text-text-muted">
+                      {formatDate(comment.postDate)}
+                    </span>
+                  </div>
+                  {comment.postMessage && (
+                    <div
+                      className="text-body text-text-secondary break-words"
+                      dangerouslySetInnerHTML={{
+                        __html: sanitizeHtml(comment.postMessage),
+                      }}
+                    />
+                  )}
+                  {comment.attachedFiles && comment.attachedFiles.length > 0 && (
+                    <CommentFiles files={comment.attachedFiles} />
+                  )}
                 </div>
-                {comment.postMessage && (
-                  <div
-                    className="text-body text-text-secondary break-words"
-                    dangerouslySetInnerHTML={{
-                      __html: sanitizeHtml(comment.postMessage),
-                    }}
-                  />
-                )}
-                {comment.attachedFiles && comment.attachedFiles.length > 0 && (
-                  <CommentFiles files={comment.attachedFiles} />
-                )}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Add comment form */}
       <form onSubmit={handleSubmit} className="flex gap-2">

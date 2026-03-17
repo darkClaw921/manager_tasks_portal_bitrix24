@@ -3,6 +3,7 @@
 import { StatCard } from '@/components/ui/StatCard';
 import { TaskList } from '@/components/tasks/TaskList';
 import { useTasks } from '@/hooks/useTasks';
+import { useUIStore } from '@/stores/ui-store';
 
 /** SVG icons for stat cards */
 function TotalIcon() {
@@ -38,6 +39,8 @@ function OverdueIcon() {
 }
 
 export default function DashboardPage() {
+  const { openSidePanel } = useUIStore();
+
   // Fetch stats from API: total, in_progress, completed, overdue
   const { data: allData } = useTasks({ limit: 1 });
   const { data: inProgressData } = useTasks({ status: 'IN_PROGRESS', limit: 1 });
@@ -91,7 +94,7 @@ export default function DashboardPage() {
         <h2 className="text-h3 font-semibold text-foreground mb-3">
           Задачи
         </h2>
-        <TaskList />
+        <TaskList onTaskClick={openSidePanel} />
       </div>
     </div>
   );
