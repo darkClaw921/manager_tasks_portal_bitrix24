@@ -1,13 +1,16 @@
 'use client';
 
+import { useState, useRef, useEffect } from 'react';
 import { useTask, type TaskDetail as TaskDetailType } from '@/hooks/useTask';
-import { useUpdateTask, useStartTask, useCompleteTask, useDeleteTask } from '@/hooks/useTasks';
+import { useUpdateTask, useStartTask, useCompleteTask, useDeleteTask, useRenewTask } from '@/hooks/useTasks';
+import { useBitrixMappings } from '@/hooks/usePortalSettings';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { PortalIndicator } from '@/components/ui/PortalIndicator';
+import { useToast } from '@/components/ui/Toast';
 import { Comments } from './Comments';
 import { Checklist } from './Checklist';
 import { Files } from './Files';
@@ -92,14 +95,158 @@ function ExternalLinkIcon() {
   );
 }
 
+function PencilIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || 'w-4 h-4'}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+    </svg>
+  );
+}
+
+function PlusIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className || 'w-4 h-4'}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+  );
+}
+
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className || 'w-3 h-3'}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+/** Reusable user picker for accomplices/auditors */
+function UserPicker({
+  label,
+  selectedIds,
+  mappings,
+  showPicker,
+  onTogglePicker,
+  onAdd,
+  onRemove,
+}: {
+  label: string;
+  selectedIds: string[];
+  mappings: Array<{ bitrixUserId: string; bitrixName?: string | null; firstName: string; lastName: string }>;
+  showPicker: boolean;
+  onTogglePicker: () => void;
+  onAdd: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        onTogglePicker();
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPicker, onTogglePicker]);
+
+  function getUserName(id: string): string {
+    const mapping = mappings.find(m => m.bitrixUserId === id);
+    if (mapping) {
+      return mapping.bitrixName || `${mapping.firstName} ${mapping.lastName}`.trim() || id;
+    }
+    return `ID: ${id}`;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-xs text-text-muted">{label}</p>
+        <button
+          type="button"
+          onClick={onTogglePicker}
+          className="p-0.5 rounded hover:bg-border transition-colors text-text-muted hover:text-foreground"
+          title={`Добавить ${label.toLowerCase()}`}
+        >
+          <PlusIcon className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {selectedIds.length === 0 && !showPicker && (
+          <span className="text-small text-text-secondary">Не назначены</span>
+        )}
+        {selectedIds.map((id) => (
+          <span
+            key={id}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-background text-small text-foreground border border-border"
+          >
+            {getUserName(id)}
+            <button
+              type="button"
+              onClick={() => onRemove(id)}
+              className="p-0.5 rounded-full hover:bg-danger/10 hover:text-danger transition-colors"
+              title="Удалить"
+            >
+              <CloseIcon className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+      </div>
+      {showPicker && (
+        <div ref={pickerRef} className="mt-2 rounded-card border border-border bg-surface shadow-lg max-h-48 overflow-y-auto">
+          {mappings.length === 0 ? (
+            <p className="p-3 text-small text-text-muted text-center">Нет замапленных пользователей</p>
+          ) : (
+            mappings.map((m) => {
+              const isSelected = selectedIds.includes(m.bitrixUserId);
+              const name = m.bitrixName || `${m.firstName} ${m.lastName}`.trim() || m.bitrixUserId;
+              return (
+                <button
+                  key={m.bitrixUserId}
+                  type="button"
+                  onClick={() => isSelected ? onRemove(m.bitrixUserId) : onAdd(m.bitrixUserId)}
+                  className={cn(
+                    'w-full text-left px-3 py-2 text-small transition-colors hover:bg-border/50',
+                    isSelected && 'bg-primary/10 text-primary font-medium'
+                  )}
+                >
+                  <span>{name}</span>
+                  {isSelected && <span className="ml-1 text-xs">(выбран)</span>}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TaskDetail({ taskId }: TaskDetailProps) {
   const { data: task, isLoading, isError } = useTask(taskId);
   const startTask = useStartTask();
   const completeTask = useCompleteTask();
   const deleteTask = useDeleteTask();
   const updateTask = useUpdateTask();
+  const renewTask = useRenewTask();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const { toast } = useToast();
+
+  // Title editing state
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleValue, setTitleValue] = useState('');
+
+  // Description editing state
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionValue, setDescriptionValue] = useState('');
+
+  // Accomplices/auditors picker state
+  const [showAccomplicesPicker, setShowAccomplicesPicker] = useState(false);
+  const [showAuditorsPicker, setShowAuditorsPicker] = useState(false);
+
+  // Bitrix mappings for user name resolution
+  const { data: mappingsData } = useBitrixMappings(task?.portalId ?? null);
 
   if (isLoading) {
     return (
@@ -130,8 +277,11 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
 
   const overdue = isOverdue(task.deadline, task.status);
   const tags = Array.isArray(task.tags) ? task.tags : [];
-  const accomplices = Array.isArray(task.accomplices) ? task.accomplices : [];
-  const auditors = Array.isArray(task.auditors) ? task.auditors : [];
+  const accomplices: string[] = Array.isArray(task.accomplices) ? task.accomplices : [];
+  const auditors: string[] = Array.isArray(task.auditors) ? task.auditors : [];
+  const userMappings = mappingsData || [];
+
+  // ==================== Handlers ====================
 
   function handleStart() {
     startTask.mutate(taskId);
@@ -156,6 +306,116 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
     );
   }
 
+  // Title editing
+  function handleStartEditTitle() {
+    setEditingTitle(true);
+    setTitleValue(task!.title);
+  }
+
+  function handleSaveTitle() {
+    const trimmed = titleValue.trim();
+    if (!trimmed) {
+      toast('error', 'Заголовок не может быть пустым');
+      return;
+    }
+    if (trimmed === task!.title) {
+      setEditingTitle(false);
+      return;
+    }
+    updateTask.mutate(
+      { id: taskId, data: { title: trimmed } },
+      {
+        onSuccess: () => {
+          setEditingTitle(false);
+          toast('success', 'Заголовок обновлён');
+        },
+        onError: (err) => {
+          toast('error', err.message || 'Ошибка при обновлении заголовка');
+        },
+      }
+    );
+  }
+
+  function handleTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveTitle();
+    } else if (e.key === 'Escape') {
+      setEditingTitle(false);
+    }
+  }
+
+  // Description editing
+  function handleStartEditDescription() {
+    setEditingDescription(true);
+    setDescriptionValue(task!.description || '');
+  }
+
+  function handleSaveDescription() {
+    updateTask.mutate(
+      { id: taskId, data: { description: descriptionValue } },
+      {
+        onSuccess: () => {
+          setEditingDescription(false);
+          toast('success', 'Описание обновлено');
+        },
+        onError: (err) => {
+          toast('error', err.message || 'Ошибка при обновлении описания');
+        },
+      }
+    );
+  }
+
+  function handleCancelEditDescription() {
+    setEditingDescription(false);
+  }
+
+  // Accomplices editing
+  function handleAddAccomplice(id: string) {
+    const newList = [...accomplices, id];
+    updateTask.mutate(
+      { id: taskId, data: { accomplices: newList } },
+      {
+        onSuccess: () => toast('success', 'Участник добавлен'),
+        onError: (err) => toast('error', err.message || 'Ошибка'),
+      }
+    );
+  }
+
+  function handleRemoveAccomplice(id: string) {
+    const newList = accomplices.filter(a => a !== id);
+    updateTask.mutate(
+      { id: taskId, data: { accomplices: newList } },
+      {
+        onSuccess: () => toast('success', 'Участник удалён'),
+        onError: (err) => toast('error', err.message || 'Ошибка'),
+      }
+    );
+  }
+
+  // Auditors editing
+  function handleAddAuditor(id: string) {
+    const newList = [...auditors, id];
+    updateTask.mutate(
+      { id: taskId, data: { auditors: newList } },
+      {
+        onSuccess: () => toast('success', 'Наблюдатель добавлен'),
+        onError: (err) => toast('error', err.message || 'Ошибка'),
+      }
+    );
+  }
+
+  function handleRemoveAuditor(id: string) {
+    const newList = auditors.filter(a => a !== id);
+    updateTask.mutate(
+      { id: taskId, data: { auditors: newList } },
+      {
+        onSuccess: () => toast('success', 'Наблюдатель удалён'),
+        onError: (err) => toast('error', err.message || 'Ошибка'),
+      }
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Back button + title */}
@@ -172,7 +432,29 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
         <div className="flex items-start gap-3">
           <PortalIndicator color={task.portalColor} size="md" className="mt-1.5" />
           <div className="flex-1 min-w-0">
-            <h1 className="text-h2 font-bold text-foreground">{task.title}</h1>
+            {editingTitle ? (
+              <input
+                type="text"
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.target.value)}
+                onKeyDown={handleTitleKeyDown}
+                onBlur={handleSaveTitle}
+                autoFocus
+                className="w-full text-h2 font-bold text-foreground bg-transparent border-b-2 border-primary outline-none py-0.5"
+              />
+            ) : (
+              <div className="flex items-center gap-2 group">
+                <h1 className="text-h2 font-bold text-foreground">{task.title}</h1>
+                <button
+                  type="button"
+                  onClick={handleStartEditTitle}
+                  className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-border transition-all text-text-muted hover:text-foreground"
+                  title="Редактировать заголовок"
+                >
+                  <PencilIcon className="w-4 h-4" />
+                </button>
+              </div>
+            )}
             <p className="text-small text-text-secondary mt-1">
               {task.portalName || task.portalDomain}
               {task.bitrixTaskId && ` / #${task.bitrixTaskId}`}
@@ -185,17 +467,61 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
         {/* Main content */}
         <div className="flex-1 min-w-0 space-y-6">
           {/* Description */}
-          {(task.description || task.descriptionHtml) && (
-            <div className="space-y-2">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
               <h3 className="text-h3 font-semibold text-foreground">Описание</h3>
-              <div
-                className="prose prose-sm max-w-none text-body text-text-secondary rounded-card bg-background p-4 [&_a]:text-primary [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_br]:block"
-                dangerouslySetInnerHTML={{
-                  __html: sanitizeHtml(task.descriptionHtml || task.description || ''),
-                }}
-              />
+              {!editingDescription && (
+                <button
+                  type="button"
+                  onClick={handleStartEditDescription}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-small text-text-muted hover:text-foreground hover:bg-border transition-colors"
+                >
+                  <PencilIcon className="w-3.5 h-3.5" />
+                  <span>Редактировать</span>
+                </button>
+              )}
             </div>
-          )}
+            {editingDescription ? (
+              <div className="space-y-2">
+                <textarea
+                  value={descriptionValue}
+                  onChange={(e) => setDescriptionValue(e.target.value)}
+                  rows={8}
+                  className="w-full rounded-card border border-border bg-background p-3 text-body text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary resize-y min-h-[120px]"
+                  placeholder="Описание задачи..."
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleSaveDescription}
+                    loading={updateTask.isPending}
+                  >
+                    Сохранить
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleCancelEditDescription}
+                  >
+                    Отмена
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              (task.description || task.descriptionHtml) ? (
+                <div
+                  className="prose prose-sm max-w-none text-body text-text-secondary rounded-card bg-background p-4 [&_a]:text-primary [&_a]:underline [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_br]:block"
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeHtml(task.descriptionHtml || task.description || ''),
+                  }}
+                />
+              ) : (
+                <p className="text-small text-text-muted rounded-card bg-background p-4">Описание не указано</p>
+              )
+            )}
+          </div>
 
           {/* Tags */}
           {tags.length > 0 && (
@@ -313,32 +639,26 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
             )}
 
             {/* Accomplices */}
-            {accomplices.length > 0 && (
-              <div>
-                <p className="text-xs text-text-muted mb-1">Участники</p>
-                <div className="flex flex-wrap gap-1">
-                  {accomplices.map((id: string) => (
-                    <Badge key={id} variant="default" size="sm">
-                      ID: {id}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
+            <UserPicker
+              label="Участники"
+              selectedIds={accomplices}
+              mappings={userMappings}
+              showPicker={showAccomplicesPicker}
+              onTogglePicker={() => setShowAccomplicesPicker(!showAccomplicesPicker)}
+              onAdd={handleAddAccomplice}
+              onRemove={handleRemoveAccomplice}
+            />
 
             {/* Auditors */}
-            {auditors.length > 0 && (
-              <div>
-                <p className="text-xs text-text-muted mb-1">Наблюдатели</p>
-                <div className="flex flex-wrap gap-1">
-                  {auditors.map((id: string) => (
-                    <Badge key={id} variant="default" size="sm">
-                      ID: {id}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
+            <UserPicker
+              label="Наблюдатели"
+              selectedIds={auditors}
+              mappings={userMappings}
+              showPicker={showAuditorsPicker}
+              onTogglePicker={() => setShowAuditorsPicker(!showAuditorsPicker)}
+              onAdd={handleAddAuditor}
+              onRemove={handleRemoveAuditor}
+            />
 
             {/* Dates */}
             <div>
@@ -425,6 +745,16 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
                 loading={completeTask.isPending}
               >
                 Завершить задачу
+              </Button>
+            )}
+            {(task.status === 'COMPLETED' || task.status === 'DEFERRED' || task.status === 'SUPPOSEDLY_COMPLETED') && (
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() => renewTask.mutate(taskId)}
+                loading={renewTask.isPending}
+              >
+                Возобновить
               </Button>
             )}
             <Button

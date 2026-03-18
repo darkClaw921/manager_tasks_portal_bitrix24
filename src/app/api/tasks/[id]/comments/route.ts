@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { tasks, portals, taskComments } from '@/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { tasks, taskComments } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { addComment } from '@/lib/bitrix/comments';
+import { hasPortalAccess } from '@/lib/portals/access';
+import { getBitrixUserIdForUser, getAllMappingsForPortal } from '@/lib/portals/mappings';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -11,6 +13,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  * POST /api/tasks/[id]/comments
  *
  * Add a comment to a task on Bitrix24 and save locally.
+ * Uses portal access check instead of portal ownership.
  * Body: { message: string }
  */
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -37,22 +40,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Get task with ownership check
+    // Get task by ID (without user ownership check)
     const task = db
       .select({
         id: tasks.id,
         portalId: tasks.portalId,
         bitrixTaskId: tasks.bitrixTaskId,
-        portalUserId: portals.userId,
       })
       .from(tasks)
-      .innerJoin(portals, eq(tasks.portalId, portals.id))
-      .where(
-        and(
-          eq(tasks.id, taskId),
-          eq(portals.userId, auth.user.userId)
-        )
-      )
+      .where(eq(tasks.id, taskId))
       .get();
 
     if (!task) {
@@ -62,11 +58,29 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Add comment on Bitrix24
+    // Check portal access
+    if (!auth.user.isAdmin && !hasPortalAccess(auth.user.userId, task.portalId)) {
+      return NextResponse.json(
+        { error: 'Not Found', message: 'Task not found' },
+        { status: 404 }
+      );
+    }
+
+    // Look up the current user's Bitrix24 ID and name for this portal
+    const bitrixUserId = getBitrixUserIdForUser(auth.user.userId, task.portalId);
+    let bitrixName: string | null = null;
+    if (bitrixUserId) {
+      const mappings = getAllMappingsForPortal(task.portalId);
+      const userMapping = mappings.find((m) => m.userId === auth.user.userId);
+      bitrixName = userMapping?.bitrixName ?? null;
+    }
+
+    // Add comment on Bitrix24 (pass authorId if available)
     const bitrixCommentId = await addComment(
       task.portalId,
       task.bitrixTaskId,
-      message.trim()
+      message.trim(),
+      bitrixUserId ?? undefined
     );
 
     // Save locally
@@ -76,8 +90,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .values({
         taskId,
         bitrixCommentId,
-        authorId: null, // We don't know the user's Bitrix24 ID here
-        authorName: 'Вы',
+        authorId: bitrixUserId ?? null,
+        authorName: bitrixName ?? 'Вы',
         postMessage: message.trim(),
         postDate: now,
         createdAt: now,

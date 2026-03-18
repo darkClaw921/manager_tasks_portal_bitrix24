@@ -12,7 +12,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  * GET /api/portals/[id]/mappings
  *
  * List all user-to-Bitrix24 mappings for a portal.
- * Requires portal admin or app admin.
+ * Requires portal access (any user with access to this portal).
  */
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
@@ -28,10 +28,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Check: must be portal admin or app admin
-    if (!auth.user.isAdmin && !isPortalAdmin(auth.user.userId, portalId)) {
+    // Check: any user with portal access can read mappings
+    if (!auth.user.isAdmin && !hasPortalAccess(auth.user.userId, portalId)) {
       return NextResponse.json(
-        { error: 'Forbidden', message: 'Requires portal admin access' },
+        { error: 'Forbidden', message: 'Requires portal access' },
         { status: 403 }
       );
     }

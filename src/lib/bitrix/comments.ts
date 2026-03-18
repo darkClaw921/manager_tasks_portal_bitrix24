@@ -403,15 +403,21 @@ export async function syncComments(
 export async function addComment(
   portalId: number,
   bitrixTaskId: number,
-  message: string
+  message: string,
+  authorId?: string
 ): Promise<number> {
   const client = createBitrix24Client(portalId);
 
+  const fields: Record<string, string> = {
+    POST_MESSAGE: message,
+  };
+  if (authorId) {
+    fields.AUTHOR_ID = authorId;
+  }
+
   const response = await client.call<number>('task.commentitem.add', {
     TASKID: bitrixTaskId,
-    FIELDS: {
-      POST_MESSAGE: message,
-    },
+    FIELDS: fields,
   });
 
   return response.result;

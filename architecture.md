@@ -105,6 +105,7 @@ src/
 │       │       ├── route.ts       # GET: single task (optional ?include=comments,checklist,files); PATCH: update on Bitrix24 + SQLite; DELETE: delete on Bitrix24 + SQLite
 │       │       ├── start/route.ts     # POST: tasks.task.start on Bitrix24, set status=IN_PROGRESS locally
 │       │       ├── complete/route.ts  # POST: tasks.task.complete on Bitrix24, set status=COMPLETED locally
+│       │       ├── renew/route.ts     # POST: tasks.task.update STATUS=3 on Bitrix24, set status=IN_PROGRESS + clear closedDate locally (resume completed/deferred task)
 │       │       ├── stage/route.ts     # POST: task.stages.movetask on Bitrix24, update stageId locally
 │       │       ├── comments/route.ts  # POST: task.commentitem.add on Bitrix24, save comment locally
 │       │       ├── checklist/
@@ -252,7 +253,7 @@ src/
 │   ├── usePortals.ts              # TanStack Query hooks: usePortals (list), useUpdatePortal (PATCH), useDisconnectPortal (DELETE), useSyncPortal (POST sync), usePortalAccess, useGrantAccess, useUpdateAccess, useRevokeAccess
 │   ├── usePortalSettings.ts       # TanStack Query hooks: useBitrixMappings(portalId), useCreateMapping(), useDeleteMapping(), useBitrixUsers(portalId, search?); custom stages: useCustomStages(portalId), useCreateCustomStage(), useUpdateCustomStage(), useDeleteCustomStage(), useMapBitrixStage(), useUnmapBitrixStage(), usePortalStages(portalId)
 │   ├── useCalendarTasks.ts         # TanStack Query hooks: useCalendarTasks(dateFrom, dateTo, portalId?) — fetches calendar tasks for date range, queryKey ['calendar-tasks', ...]; useTeamDay(date, portalId?) — fetches team members + tasks for a day, queryKey ['calendar-team', ...]. Both staleTime: 30_000
-│   ├── useTasks.ts                # TanStack Query hooks: useTasks (filtered list), useCreateTask, useUpdateTask, useDeleteTask, useStartTask, useCompleteTask, useMoveTaskStage
+│   ├── useTasks.ts                # TanStack Query hooks: useTasks (filtered list), useCreateTask, useUpdateTask, useDeleteTask, useStartTask, useCompleteTask, useRenewTask, useMoveTaskStage
 │   ├── useTask.ts                 # TanStack Query hooks: useTask (single with comments/checklist/files), useAddComment, useAddChecklistItem, useToggleChecklistItem (optimistic), useDeleteChecklistItem
 │   ├── useNotifications.ts        # TanStack Query hooks: useNotifications (paginated list), useUnreadCount (30s polling), useMarkAsRead, useMarkAllAsRead
 │   ├── usePushNotifications.ts    # Push notification hook: isSupported, isSubscribed, permission, subscribe(), unsubscribe(); handles service worker + PushManager lifecycle

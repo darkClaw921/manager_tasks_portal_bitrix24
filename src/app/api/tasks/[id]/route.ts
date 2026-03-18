@@ -182,7 +182,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     const body = await request.json();
-    const { title, description, priority, deadline, status, responsibleId, tags, excludeFromAi } = body;
+    const { title, description, priority, deadline, status, responsibleId, tags, excludeFromAi, accomplices, auditors } = body;
 
     // Build Bitrix24 fields (only fields that sync to Bitrix24)
     const fields: Record<string, unknown> = {};
@@ -193,6 +193,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (status !== undefined) fields.STATUS = status;
     if (responsibleId !== undefined) fields.RESPONSIBLE_ID = responsibleId;
     if (tags !== undefined) fields.TAGS = tags;
+    if (accomplices !== undefined) fields.ACCOMPLICES = accomplices;
+    if (auditors !== undefined) fields.AUDITORS = auditors;
 
     // Local-only fields don't need Bitrix24 sync
     const hasLocalOnlyFields = excludeFromAi !== undefined;
@@ -224,6 +226,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (status !== undefined) localUpdates.status = mapBitrixStatus(status);
     if (responsibleId !== undefined) localUpdates.responsibleId = responsibleId;
     if (tags !== undefined) localUpdates.tags = JSON.stringify(tags);
+    if (accomplices !== undefined) localUpdates.accomplices = JSON.stringify(accomplices);
+    if (auditors !== undefined) localUpdates.auditors = JSON.stringify(auditors);
     if (excludeFromAi !== undefined) localUpdates.excludeFromAi = excludeFromAi ? 1 : 0;
 
     db.update(tasks)

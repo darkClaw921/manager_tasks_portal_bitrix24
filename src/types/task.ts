@@ -120,6 +120,8 @@ export interface UpdateTaskInput {
   deadline?: string;
   tags?: string[];
   responsibleId?: string;
+  accomplices?: string[];
+  auditors?: string[];
 }
 
 export interface TaskFilters {

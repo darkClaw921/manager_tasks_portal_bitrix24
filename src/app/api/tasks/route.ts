@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { tasks, portals } from '@/lib/db/schema';
-import { eq, and, like, sql, lte, gte, asc, desc } from 'drizzle-orm';
+import { eq, and, sql, lte, gte, asc, desc } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { createBitrix24Client, Bitrix24Error } from '@/lib/bitrix/client';
 import { upsertTask } from '@/lib/bitrix/tasks';
@@ -72,14 +72,16 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(tasks.priority, priority));
     }
 
-    // Search filter (LIKE on title)
+    // Search filter (case-insensitive LIKE on title)
     if (search && search.trim()) {
-      conditions.push(like(tasks.title, `%${search.trim()}%`));
+      const s = `%${search.trim().toLowerCase()}%`;
+      conditions.push(sql`lower(${tasks.title}) LIKE ${s}`);
     }
 
-    // Assignee filter (responsible_name LIKE)
+    // Assignee filter (case-insensitive responsible_name LIKE)
     if (assignee && assignee.trim()) {
-      conditions.push(like(tasks.responsibleName, `%${assignee.trim()}%`));
+      const a = `%${assignee.trim().toLowerCase()}%`;
+      conditions.push(sql`lower(${tasks.responsibleName}) LIKE ${a}`);
     }
 
     // Date range filter (on deadline)

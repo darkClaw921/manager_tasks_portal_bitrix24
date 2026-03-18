@@ -93,6 +93,18 @@ async function completeTask(id: number): Promise<TaskWithPortal> {
   return data.data;
 }
 
+async function renewTask(id: number): Promise<TaskWithPortal> {
+  const response = await fetch(`/api/tasks/${id}/renew`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || 'Failed to renew task');
+  }
+  const data = await response.json();
+  return data.data;
+}
+
 async function moveTaskStage(
   id: number,
   stageId: string
@@ -191,6 +203,21 @@ export function useCompleteTask() {
 
   return useMutation({
     mutationFn: completeTask,
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['task', id] });
+    },
+  });
+}
+
+/**
+ * Hook to renew/resume a task (change status back to IN_PROGRESS).
+ */
+export function useRenewTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: renewTask,
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['task', id] });
