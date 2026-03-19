@@ -286,12 +286,19 @@ export async function fullSync(portalId: number): Promise<{
     errors.push(msg);
   }
 
-  // Step 2: Fetch all tasks with pagination
+  // Step 2: Check user mappings — skip task sync if none exist
+  const mappedUserIds = getMappedBitrixUserIds(portalId);
+  if (mappedUserIds.size === 0) {
+    console.log(`[sync] Portal ${portalId} has no user mappings, skipping task sync`);
+    db.update(portals).set({ lastSyncAt: new Date().toISOString() }).where(eq(portals.id, portalId)).run();
+    return { tasksCount: 0, errors };
+  }
+
+  // Step 3: Fetch all tasks with pagination
   const bitrixTasks = await fetchAllTasks(portalId);
   console.log(`[sync] Fetched ${bitrixTasks.length} total tasks from portal ${portalId}`);
 
-  // Step 3: Filter tasks by mapped users
-  const mappedUserIds = getMappedBitrixUserIds(portalId);
+  // Step 4: Filter tasks by mapped users
   const relevantTasks = bitrixTasks.filter(t => isTaskRelevantToUsers(t, mappedUserIds));
   console.log(`[sync] Filtered to ${relevantTasks.length} relevant tasks (${bitrixTasks.length - relevantTasks.length} skipped)`);
 

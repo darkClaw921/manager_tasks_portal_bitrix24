@@ -217,13 +217,13 @@ export function mapBitrixTaskToLocal(
  * A task is relevant if any of its roles (responsible, creator, accomplice, auditor)
  * belong to the mapped users.
  *
- * If mappedUserIds is empty (no mappings configured), returns true — no filtering applied.
+ * If mappedUserIds is empty (no mappings configured), returns false — no tasks are relevant.
  */
 export function isTaskRelevantToUsers(
   task: BitrixTask,
   mappedUserIds: Set<string>
 ): boolean {
-  if (mappedUserIds.size === 0) return true;
+  if (mappedUserIds.size === 0) return false;
 
   if (task.RESPONSIBLE_ID && mappedUserIds.has(String(task.RESPONSIBLE_ID))) return true;
   if (task.CREATED_BY && mappedUserIds.has(String(task.CREATED_BY))) return true;
