@@ -92,6 +92,7 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  serverExternalPackages: ["pdfmake"],
 };
 
 export default withPWA(nextConfig);

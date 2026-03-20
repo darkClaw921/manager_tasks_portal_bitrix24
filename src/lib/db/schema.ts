@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // ==================== USERS ====================
@@ -193,6 +193,23 @@ export const taskFiles = sqliteTable('task_files', {
   createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
 });
 
+// ==================== TASK RATES ====================
+export const taskRates = sqliteTable('task_rates', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  taskId: integer('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  rateType: text('rate_type').notNull().default('fixed'), // 'hourly' | 'fixed'
+  amount: real('amount').notNull().default(0),
+  hoursOverride: real('hours_override'), // null = использовать timeSpent из задачи
+  isPaid: integer('is_paid', { mode: 'boolean' }).notNull().default(false),
+  paidAt: text('paid_at'),
+  note: text('note'),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  updatedAt: text('updated_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => [
+  uniqueIndex('task_rates_user_task_unique').on(table.userId, table.taskId),
+]);
+
 // ==================== NOTIFICATIONS ====================
 export const notifications = sqliteTable('notifications', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -280,3 +297,6 @@ export type NewPortalStageMapping = typeof portalStageMappings.$inferInsert;
 
 export type AppSetting = typeof appSettings.$inferSelect;
 export type NewAppSetting = typeof appSettings.$inferInsert;
+
+export type TaskRate = typeof taskRates.$inferSelect;
+export type NewTaskRate = typeof taskRates.$inferInsert;

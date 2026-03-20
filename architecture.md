@@ -16,6 +16,7 @@
 - **Markdown:** react-markdown (rendering AI report content)
 - **PWA:** @ducanh2912/next-pwa (service worker, offline fallback, caching strategies)
 - **Push:** web-push (VAPID, Web Push Protocol)
+- **PDF:** pdfmake (server-side PDF generation with Roboto fonts for Cyrillic)
 - **Sanitization:** isomorphic-dompurify (XSS protection, works in SSR and client)
 - **Font:** Inter (Google Fonts via next/font)
 
@@ -64,6 +65,9 @@ src/
 │   │   ├── reports/
 │   │   │   ├── page.tsx           # AI Reports page: Daily/Weekly tabs, StatCards, AI markdown summary, regenerate, AI chat
 │   │   │   └── loading.tsx        # Reports skeleton: StatCards + content area
+│   │   ├── payments/
+│   │   │   ├── page.tsx           # Payments page: PaymentSummaryCards + PaymentFilters + batch actions bar + PaymentTable + pagination + PDF export. Uses usePayments, useUpdatePaymentStatus, useBatchUpdatePaymentStatus hooks. Admin sees user filter
+│   │   │   └── loading.tsx        # Payments skeleton: 3 StatCardSkeleton + filters + 5 table row skeletons
 │   │   └── admin/
 │   │       ├── layout.tsx         # Admin layout guard: checks isAdmin via /api/auth/me, redirects non-admins to /dashboard
 │   │       └── users/
@@ -150,14 +154,15 @@ src/
 │   │   └── Toast.tsx              # Toast notification system: ToastProvider (wraps app), useToast hook, 4 types (success/error/warning/info), auto-dismiss, slide-in animation
 │   ├── layout/
 │   │   ├── index.ts               # Barrel export: Sidebar, Header, BottomTabs
-│   │   ├── Sidebar.tsx            # Sidebar: 260px, bg #1E293B, logo, portal list with PortalIndicator, 6+1 NavItems (Dashboard/Задачи/Календарь/Порталы/AI Отчёты/Настройки + admin link conditional), real user name/email from /api/auth/me; mobile overlay via Zustand
+│   │   ├── Sidebar.tsx            # Sidebar: 260px, bg #1E293B, logo, portal list with PortalIndicator, 7+1 NavItems (Dashboard/Задачи/Календарь/Порталы/AI Отчёты/Оплата/Настройки + admin link conditional), real user name/email from /api/auth/me; mobile overlay via Zustand
 │   │   ├── Header.tsx             # Header: SearchInput (desktop), filters button, "Создать задачу" primary button, notification bell with real unread count + NotificationDropdown, avatar; mobile hamburger
-│   │   └── BottomTabs.tsx         # BottomTabs: 6 tabs (Задачи/Мои/Календарь/Порталы/AI/Настройки), SVG icons, active state, uses BottomTabBar wrapper
+│   │   └── BottomTabs.tsx         # BottomTabs: 7 tabs (Задачи/Мои/Календарь/Порталы/AI/Оплата/Настройки), SVG icons, active state, uses BottomTabBar wrapper
 │   ├── tasks/
-│   │   ├── index.ts               # Barrel export: TaskList, CreateTaskModal, TaskDetail, Comments, Checklist, Files, TaskSidePanel
+│   │   ├── index.ts               # Barrel export: TaskList, CreateTaskModal, TaskDetail, Comments, Checklist, Files, TaskSidePanel, TaskRateWidget
 │   │   ├── TaskList.tsx           # Task list: uses useTasks hook, portal filter (PortalIndicator chips), status tabs, search with debounce, pagination, skeleton loading, empty state
 │   │   ├── CreateTaskModal.tsx    # Modal: portal select, title, description, priority, deadline, responsible ID, tags; uses useCreateTask; opens via Zustand activeModal='createTask'
-│   │   ├── TaskDetail.tsx         # Full task detail: title, description (HTML), tags, right sidebar (status/priority/responsible/creator/deadline/time/accomplices/auditors/dates/Bitrix24 link), start/complete/delete buttons
+│   │   ├── TaskDetail.tsx         # Full task detail: title, description (HTML), tags, right sidebar (status/priority/responsible/creator/deadline/time/accomplices/auditors/TaskRateWidget/dates/Bitrix24 link), start/complete/delete buttons
+│   │   ├── TaskRateWidget.tsx     # Compact rate widget for TaskDetail sidebar: 4 states (loading skeleton, no-rate button, view mode with type/amount/hours/total/payment badge/note, inline edit form). Uses useTaskRate, useUpsertTaskRate, useDeleteTaskRate hooks. Props: taskId, timeSpent
 │   │   ├── Comments.tsx           # Comment list with author avatar + date + HTML content; add comment form with send button
 │   │   ├── Checklist.tsx          # Checklist: progress bar, checkbox toggle (optimistic), add/delete items, completed count/total
 │   │   ├── Files.tsx              # File list: name, size, content type, download link
@@ -189,6 +194,11 @@ src/
 │   │   ├── index.ts               # Barrel export: ReportSummary, ReportChat
 │   │   ├── ReportSummary.tsx      # Report display: 4 StatCards (total/completed/inProgress/overdue), markdown content via react-markdown, regenerate button, loading skeleton, empty state
 │   │   └── ReportChat.tsx         # AI chat interface: message bubbles (user/assistant), streaming typing effect, suggestion chips, auto-scroll, markdown rendering, clear history, Enter to send
+│   ├── payments/
+│   │   ├── index.ts               # Barrel export: PaymentSummaryCards, PaymentFilters, PaymentTable
+│   │   ├── PaymentSummaryCards.tsx # 3 StatCards in grid (Всего заработано/Оплачено/Не оплачено) with RUB currency formatting, loading skeleton. Props: summary: PaymentSummary, loading?: boolean
+│   │   ├── PaymentFilters.tsx     # Horizontal filter panel: portal select, date range (from/to), paid status, task status, user (admin only), reset button. Props: filters, onFiltersChange, portals, isAdmin, users
+│   │   └── PaymentTable.tsx       # Desktop HTML table + mobile cards: checkbox selection, task link, portal indicator, rate type, rate amount, hours, total, task status badge, clickable paid/unpaid badge. Empty state, skeleton loading. Props: rates, selectedIds, onToggleSelect, onSelectAll, onTogglePaid, loading
 │   ├── admin/
 │   │   ├── index.ts               # Barrel export: UserTable, CreateUserForm, UserDetailModal
 │   │   ├── UserTable.tsx           # Admin user table: email, name, role badge, portal count, created date; inline edit, delete with confirm; mobile cards layout
@@ -203,7 +213,7 @@ src/
 │   │   └── sanitize.ts            # HTML sanitization via isomorphic-dompurify: sanitizeHtml() (whitelist of safe tags/attrs), sanitizeText() (strip all tags)
 │   ├── db/
 │   │   ├── index.ts               # DB initialization: creates SQLite connection, 15 tables (incl. app_settings), migrates existing portals to user_portal_access, runs seed
-│   │   ├── schema.ts              # Drizzle ORM schema: 15 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, notifications, ai_reports, ai_chat_messages, app_settings)
+│   │   ├── schema.ts              # Drizzle ORM schema: 16 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, task_rates, notifications, ai_reports, ai_chat_messages, app_settings)
 │   │   └── seed.ts                # Admin seed from env vars (ADMIN_EMAIL/PASSWORD) + default app settings seed (work_hours_start=9, work_hours_end=18)
 │   ├── auth/
 │   │   ├── jwt.ts                 # JWT sign/verify with jose (HS256, 7d expiry); getJwtSecret() — environment-aware secret enforcement (throws in production if JWT_SECRET missing, warns+fallback in dev); shared by middleware.ts and oauth.ts
@@ -230,6 +240,9 @@ src/
 │   │   ├── mappings.ts            # User-Bitrix24 mapping CRUD: getBitrixUserIdForUser, getUserForBitrixUserId, getUsersForBitrixUserIds (bulk inArray), getAllMappingsForPortal (with user info JOIN), getMappedBitrixUserIds (returns Set<string> of all mapped bitrix user IDs for portal, no JOIN), createMapping, deleteMapping, updateMapping
 │   │   ├── notification-resolver.ts # Notification recipient resolution: resolveNotificationRecipients(portalId, task) — collects bitrix user IDs from task, maps to app users, filters by can_see_* permissions, fallback to portal admin; resolveRecipientsForMention(portalId, bitrixUserIds) — maps mentioned bitrix IDs to app users without permission filtering
 │   │   └── task-filter.ts         # Task access filtering: buildTaskAccessFilter(userId) — builds parameterized SQL WHERE using Drizzle ORM operators (eq, like, or, and) based on user_portal_access permissions + user_bitrix_mappings; buildPortalTaskFilter(userId, portalId) — single portal variant; returns SQL type; uses like() for JSON array fields (accomplices, auditors); getAccessiblePortalIds(userId) — returns portal ID list
+│   ├── payments/
+│   │   ├── rates.ts               # Payment data access layer: getTaskRateForUser (single rate), getTaskRatesForUser (paginated with JOIN tasks+portals), getAllTaskRates (admin, with JOIN users), upsertTaskRate (INSERT ON CONFLICT UPDATE on user_id+task_id), updatePaymentStatus/updatePaymentStatusAdmin (toggle isPaid+paidAt), batchUpdatePaymentStatus/batchUpdatePaymentStatusAdmin (bulk toggle), getPaymentSummary (JS aggregation: totalEarned/totalPaid/totalUnpaid/taskCount, hourly=amount*hours, fixed=amount), deleteTaskRate, isUserParticipant (checks via userBitrixMappings -> responsibleId/creatorId/accomplices/auditors), getTaskRateById
+│   │   └── pdf-generator.ts       # PDF report generator using pdfmake. Exports generatePaymentReport(params) -> Promise<Buffer>. Generates A4 landscape PDF with: title, user info (name/email/date), applied filters, summary cards (total/paid/unpaid in RUB), data table (task/portal/rate type/amount/hours/total/status/payment), total row, page numbers footer. Uses Roboto fonts for Cyrillic support. Calculates totals: hourly=amount*hours(hoursOverride ?? timeSpent/3600), fixed=amount. Russian status translations.
 │   ├── calendar/
 │   │   └── utils.ts               # Calendar utilities: constants (HOUR_HEIGHT=80, WORK_HOURS 9-18, MAX_OVERLAP_COLUMNS=4), range helpers (getWeekRange Mon-Sun, getDayRange), pixel calculations (timeToPixelOffset clamped 0-720, getTaskTimeBlock from startDatePlan/endDatePlan/deadline), overlap algorithm (resolveOverlaps greedy column packing with cap at 4 columns — tasks beyond cap get hidden=true, carrier task gets overflowCount), free slot finder (findFreeSlots 30-min increment bitmap), busy level (getBusyLevel), Russian locale date formatting (formatWeekLabel, formatDayLabel, getDayShortName, isToday, isSameDay, isWeekend)
 │   ├── notifications/
@@ -255,6 +268,7 @@ src/
 │   ├── useCalendarTasks.ts         # TanStack Query hooks: useCalendarTasks(dateFrom, dateTo, portalId?) — fetches calendar tasks for date range, queryKey ['calendar-tasks', ...]; useTeamDay(date, portalId?) — fetches team members + tasks for a day, queryKey ['calendar-team', ...]. Both staleTime: 30_000
 │   ├── useTasks.ts                # TanStack Query hooks: useTasks (filtered list), useCreateTask, useUpdateTask, useDeleteTask, useStartTask, useCompleteTask, useRenewTask, useMoveTaskStage
 │   ├── useTask.ts                 # TanStack Query hooks: useTask (single with comments/checklist/files), useAddComment, useAddChecklistItem, useToggleChecklistItem (optimistic), useDeleteChecklistItem
+│   ├── usePayments.ts             # TanStack Query hooks: useTaskRate(taskId), useUpsertTaskRate(), useDeleteTaskRate(), usePayments(filters), useUpdatePaymentStatus(), useBatchUpdatePaymentStatus()
 │   ├── useNotifications.ts        # TanStack Query hooks: useNotifications (paginated list), useUnreadCount (30s polling), useMarkAsRead, useMarkAllAsRead
 │   ├── usePushNotifications.ts    # Push notification hook: isSupported, isSubscribed, permission, subscribe(), unsubscribe(); handles service worker + PushManager lifecycle
 │   ├── useReports.ts             # TanStack Query hooks: useDailyReport(date?), useWeeklyReport(week?), useRegenerateDaily(), useRegenerateWeekly()
@@ -265,13 +279,14 @@ src/
 │   ├── portal-store.ts            # Zustand store with persist: portals[], activePortalId, CRUD actions; persists activePortalId to localStorage
 │   └── calendar-store.ts          # Zustand store with persist: view (CalendarView), currentDate (ISO string), selectedUserIds, slotDuration (30/60/120); actions: setView, setCurrentDate, goToToday, navigateWeek(±1), navigateDay(±1), toggleUser, setSelectedUserIds, setSlotDuration; persists view, slotDuration, selectedUserIds to localStorage key 'taskhub-calendar-store'
 └── types/
-    ├── index.ts                   # Re-exports all types (user, portal, task, calendar, notification, bitrix, api)
+    ├── index.ts                   # Re-exports all types (user, portal, task, calendar, notification, bitrix, api, payment)
     ├── user.ts                    # User, UserWithoutPassword, LoginInput, CreateUserInput, UpdateUserInput
     ├── portal.ts                  # Portal, PortalPublic, CreatePortalInput, UpdatePortalInput, PortalAccessRole, PortalAccessPermissions, UserPortalAccess, UserBitrixMapping, PortalMappingCreate, PortalCustomStage, PortalStageMapping
     ├── task.ts                    # Task, TaskWithPortal, TaskStage, TaskComment, TaskChecklistItem, TaskFile, TaskFilters, Create/UpdateTaskInput
     ├── calendar.ts                # CalendarView ('week'|'team-day'|'free-slots'), CalendarTask (extends TaskWithPortal + startY/height/startTime/endTime/columnIndex/totalColumns/hidden/overflowCount), FreeSlot, TeamMember
     ├── notification.ts            # Notification, NotificationType, AIReport, AIChatMessage
     ├── bitrix.ts                  # BitrixResponse, BitrixTask, BitrixStage, BitrixComment, BitrixChecklistItem, BitrixFile, BitrixUser, BitrixTokenResponse, BitrixWebhookEvent
+    ├── payment.ts                 # RateType, TaskRate, TaskRateWithTask, UpsertTaskRateInput, PaymentFilters, PaymentSummary
     └── api.ts                     # ApiResponse<T>, PaginatedResponse<T>, ApiError
 ```
 
@@ -356,7 +371,8 @@ All tables use INTEGER PRIMARY KEY AUTOINCREMENT. Foreign keys enforce CASCADE o
 |-----------|-------------|
 | [TaskList](./src/components/tasks/TaskList.tsx) | Paginated task list with portal filter (PortalIndicator chips), status tabs, search (debounced), skeleton loading, empty state, pagination controls |
 | [CreateTaskModal](./src/components/tasks/CreateTaskModal.tsx) | Modal for creating task: portal select, title, description, priority, deadline, responsible ID, tags. Uses `useCreateTask` mutation |
-| [TaskDetail](./src/components/tasks/TaskDetail.tsx) | Full task view: title, description (HTML), tags, checklist, comments, files. Right sidebar: status/priority/responsible/creator/deadline/time/bitrix_url. Action buttons: start/complete/delete |
+| [TaskDetail](./src/components/tasks/TaskDetail.tsx) | Full task view: title, description (HTML), tags, checklist, comments, files. Right sidebar: status/priority/responsible/creator/deadline/time/accomplices/auditors/TaskRateWidget/dates/bitrix_url. Action buttons: start/complete/delete |
+| [TaskRateWidget](./src/components/tasks/TaskRateWidget.tsx) | Compact rate widget: loading skeleton, "Указать ставку" button, view mode (type/amount/hours/total/payment badge/note + edit/delete), inline edit form (SelectField type, InputField amount, InputField hours, TextareaField note, live total preview). Uses `useTaskRate`, `useUpsertTaskRate`, `useDeleteTaskRate` |
 | [Comments](./src/components/tasks/Comments.tsx) | Comment list (author avatar, date, HTML content) + add comment form |
 | [Checklist](./src/components/tasks/Checklist.tsx) | Checklist with progress bar, toggle checkboxes (optimistic update), add/delete items |
 | [Files](./src/components/tasks/Files.tsx) | File list with name, size, content type, download link |
@@ -380,6 +396,16 @@ Reusable components for the calendar feature (weekly view, team day view, free s
 | [SlotCard](./src/components/calendar/SlotCard.tsx) | Recommended free slot card for Free Slots view. Shows day name + date (Russian), time range + duration, and "Забронировать" button. Best slot: green border + bg-success-light, green text/button. Normal: border-border, secondary text, outline button. Duration formatted as decimal hours (e.g. "3.5 ч"). Props: `slot: FreeSlot`, `onBook?: (slot: FreeSlot) => void` |
 | [FreeSlotsView](./src/components/calendar/FreeSlotsView.tsx) | Complete free slots view combining ParticipantSelector, AvailabilityGrid, and SlotCard. Two-panel layout: left (participants + grid + legend), right (340px, recommended slots). Uses `useCalendarStore` (currentDate, selectedUserIds, slotDuration), `useCalendarTasks` (week range), `useTeamDay` (members). Maps app userIds to Bitrix userIds, calls `findFreeSlots()`. Duration filter tabs (30m/1h/2h) with active green styling. Zap icon header with slot count badge. Empty states for no participants and no slots found. Mobile: panels stack vertically |
 
+### Payment Components ([`components/payments/`](./src/components/payments/))
+
+Reusable components for the payments page. Barrel exported from [`index.ts`](./src/components/payments/index.ts).
+
+| Component | Description |
+|-----------|-------------|
+| [PaymentSummaryCards](./src/components/payments/PaymentSummaryCards.tsx) | 3 StatCards in responsive grid (1 col mobile, 3 cols desktop): Всего заработано (banknote icon), Оплачено (check icon, green trend), Не оплачено (clock icon). Currency formatted via `Intl.NumberFormat('ru-RU', {currency: 'RUB'})`. Loading state shows StatCardSkeleton. Props: `summary: PaymentSummary`, `loading?: boolean` |
+| [PaymentFilters](./src/components/payments/PaymentFilters.tsx) | Horizontal flex-wrap filter panel: portal SelectField, date range (from/to InputField type=date), paid status SelectField, task status SelectField, user SelectField (admin only), ghost "Сбросить" button. Resets page to 1 on filter change. Props: `filters: PaymentFilters`, `onFiltersChange`, `portals: PortalPublic[]`, `isAdmin?: boolean`, `users?` |
+| [PaymentTable](./src/components/payments/PaymentTable.tsx) | Desktop: HTML table with checkbox, task link, portal indicator+name, rate type, rate amount, hours (hourly: hoursOverride ?? timeSpent/3600, fixed: dash), total, task status badge, clickable paid/unpaid badge. Mobile: card layout with same data. Empty state via EmptyState component. Skeleton rows for loading. Props: `rates: TaskRateWithTask[]`, `selectedIds: Set<number>`, `onToggleSelect`, `onSelectAll`, `onTogglePaid`, `loading?` |
+
 ### Hooks ([`hooks/`](./src/hooks/))
 
 | Hook | Description |
@@ -388,6 +414,7 @@ Reusable components for the calendar feature (weekly view, team day view, free s
 | [usePortals](./src/hooks/usePortals.ts) | `usePortals()` - fetches portal list with access info; `useUpdatePortal()` - PATCH; `useDisconnectPortal()` - DELETE; `useSyncPortal()` - POST sync; `usePortalAccess(portalId)` - fetch users with access; `useGrantAccess()` - grant; `useUpdateAccess()` - update permissions; `useRevokeAccess()` - revoke |
 | [useTasks](./src/hooks/useTasks.ts) | `useTasks(filters)` - paginated filtered list; `useCreateTask()`, `useUpdateTask()`, `useDeleteTask()`, `useStartTask()`, `useCompleteTask()`, `useMoveTaskStage()` |
 | [useTask](./src/hooks/useTask.ts) | `useTask(id)` - single task with comments/checklist/files; `useAddComment()`, `useAddChecklistItem()`, `useToggleChecklistItem()` (optimistic), `useDeleteChecklistItem()` |
+| [usePayments](./src/hooks/usePayments.ts) | `useTaskRate(taskId)` - fetch rate for task; `useUpsertTaskRate()` - create/update rate; `useDeleteTaskRate()` - delete rate; `usePayments(filters)` - paginated list with summary; `useUpdatePaymentStatus()` - toggle paid; `useBatchUpdatePaymentStatus()` - batch toggle |
 | [useNotifications](./src/hooks/useNotifications.ts) | `useNotifications(params)` - paginated notification list; `useUnreadCount()` - unread count with 30s polling; `useMarkAsRead()`, `useMarkAllAsRead()` - mutations |
 | [usePushNotifications](./src/hooks/usePushNotifications.ts) | `usePushNotifications()` - push subscription lifecycle: `isSupported`, `isSubscribed`, `permission`, `subscribe()`, `unsubscribe()` |
 | [useReports](./src/hooks/useReports.ts) | `useDailyReport(date?)`, `useWeeklyReport(week?)` - fetch/generate reports; `useRegenerateDaily()`, `useRegenerateWeekly()` - force-regenerate mutations |
@@ -489,6 +516,20 @@ Defined in [globals.css](./src/app/globals.css) via CSS variables and `@theme in
 
 Task GET uses permission-based filtering via `buildTaskAccessFilter()` / `buildPortalTaskFilter()` from `task-filter.ts`. Task POST verifies access via `hasPortalAccess()`. All task API routes enforce access via user_portal_access.
 Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQLite is not updated.
+
+### Payment / Rate API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/tasks/[id]/rate` | GET | Get current user's rate for a task. Returns `{ data: TaskRate \| null }` |
+| `/api/tasks/[id]/rate` | PUT | Upsert rate. Body: `{rateType, amount, hoursOverride?, note?}`. Checks isUserParticipant. Returns `{ data: TaskRate }` |
+| `/api/tasks/[id]/rate` | DELETE | Delete rate. Returns `{ data: { deleted: true } }` |
+| `/api/payments` | GET | List rates with filters (portalId, dateFrom, dateTo, isPaid, taskStatus, userId (admin), page, limit). Admin sees all users, regular user sees own. Returns data + pagination + PaymentSummary |
+| `/api/payments/[id]` | PATCH | Toggle payment status. Body: `{isPaid}`. Owner or admin. Returns `{ data: TaskRate }` |
+| `/api/payments/batch` | PATCH | Batch toggle payment status. Body: `{rateIds[], isPaid}`. Checks ownership. Returns `{ data: { updated: number } }` |
+| `/api/payments/export` | GET | Export payments as PDF via pdfmake. Same filters as /api/payments. Fetches rates, summary, user info, portal name; calls generatePaymentReport; returns PDF buffer with Content-Type: application/pdf and Content-Disposition: attachment filename="payment-report-YYYY-MM-DD.pdf" |
+
+Route files: [`tasks/[id]/rate/route.ts`](./src/app/api/tasks/[id]/rate/route.ts), [`payments/route.ts`](./src/app/api/payments/route.ts), [`payments/[id]/route.ts`](./src/app/api/payments/[id]/route.ts), [`payments/batch/route.ts`](./src/app/api/payments/batch/route.ts), [`payments/export/route.ts`](./src/app/api/payments/export/route.ts)
 
 ### Webhook Handler ([`api/webhooks/bitrix/route.ts`](./src/app/api/webhooks/bitrix/route.ts))
 

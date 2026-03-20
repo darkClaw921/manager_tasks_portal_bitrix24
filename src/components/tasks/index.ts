@@ -18,3 +18,6 @@ export { Files } from './Files';
 export type { FilesProps } from './Files';
 
 export { TaskSidePanel } from './TaskSidePanel';
+
+export { TaskRateWidget } from './TaskRateWidget';
+export type { TaskRateWidgetProps } from './TaskRateWidget';
