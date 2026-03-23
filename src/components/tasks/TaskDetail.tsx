@@ -15,6 +15,8 @@ import { Comments } from './Comments';
 import { Checklist } from './Checklist';
 import { Files } from './Files';
 import { TaskRateWidget } from './TaskRateWidget';
+import { TaskTimerControls } from '@/components/time-tracking';
+import { useTaskTimeTracking } from '@/hooks/useTimeTracking';
 import { cn } from '@/lib/utils';
 import { sanitizeHtml } from '@/lib/utils/sanitize';
 
@@ -225,6 +227,7 @@ function UserPicker({
 
 export function TaskDetail({ taskId }: TaskDetailProps) {
   const { data: task, isLoading, isError } = useTask(taskId);
+  const { data: timeTrackingData } = useTaskTimeTracking(taskId);
   const startTask = useStartTask();
   const completeTask = useCompleteTask();
   const deleteTask = useDeleteTask();
@@ -639,6 +642,11 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
               </div>
             )}
 
+            {/* Time Tracking */}
+            <div className="pt-3 border-t border-border">
+              <TaskTimerControls taskId={task.id} />
+            </div>
+
             {/* Accomplices */}
             <UserPicker
               label="Участники"
@@ -664,7 +672,7 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
             {/* Ставка / Оплата */}
             <div className="pt-3 border-t border-zinc-700">
               <h4 className="text-xs font-medium text-zinc-400 mb-2">Ставка</h4>
-              <TaskRateWidget taskId={task.id} timeSpent={task.timeSpent} />
+              <TaskRateWidget taskId={task.id} timeSpent={task.timeSpent} trackedTime={timeTrackingData?.totalDuration ?? null} />
             </div>
 
             {/* Dates */}

@@ -40,13 +40,13 @@ function getTaskStatusBadge(status: string) {
 
 function getHours(rate: TaskRateWithTask): string {
   if (rate.rateType === 'fixed') return '\u2014';
-  const hours = rate.hoursOverride ?? (rate.timeSpent ? rate.timeSpent / 3600 : 0);
+  const hours = rate.hoursOverride ?? (rate.trackedTime ? rate.trackedTime / 3600 : (rate.timeSpent ? rate.timeSpent / 3600 : 0));
   return hours.toFixed(1);
 }
 
 function getTotal(rate: TaskRateWithTask): number {
   if (rate.rateType === 'fixed') return rate.amount;
-  const hours = rate.hoursOverride ?? (rate.timeSpent ? rate.timeSpent / 3600 : 0);
+  const hours = rate.hoursOverride ?? (rate.trackedTime ? rate.trackedTime / 3600 : (rate.timeSpent ? rate.timeSpent / 3600 : 0));
   return rate.amount * hours;
 }
 

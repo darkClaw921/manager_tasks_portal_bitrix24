@@ -5,6 +5,7 @@ import { SearchInput } from '@/components/ui/SearchInput';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { NotificationDropdown } from '@/components/notifications/NotificationDropdown';
+import { ActiveTimersWidget } from '@/components/time-tracking';
 import { useUIStore } from '@/stores/ui-store';
 import { useUnreadCount } from '@/hooks/useNotifications';
 import { cn } from '@/lib/utils';
@@ -143,6 +144,9 @@ export function Header({ className }: HeaderProps) {
           >
             <PlusIcon />
           </Button>
+
+          {/* Active Timers */}
+          <ActiveTimersWidget />
 
           {/* Notifications */}
           <div className="relative">

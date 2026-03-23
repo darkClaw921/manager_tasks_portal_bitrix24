@@ -210,6 +210,17 @@ export const taskRates = sqliteTable('task_rates', {
   uniqueIndex('task_rates_user_task_unique').on(table.userId, table.taskId),
 ]);
 
+// ==================== TIME TRACKING ENTRIES ====================
+export const timeTrackingEntries = sqliteTable('time_tracking_entries', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  taskId: integer('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  startedAt: text('started_at').notNull(),
+  stoppedAt: text('stopped_at'),
+  duration: integer('duration'),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+});
+
 // ==================== NOTIFICATIONS ====================
 export const notifications = sqliteTable('notifications', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -300,3 +311,6 @@ export type NewAppSetting = typeof appSettings.$inferInsert;
 
 export type TaskRate = typeof taskRates.$inferSelect;
 export type NewTaskRate = typeof taskRates.$inferInsert;
+
+export type TimeTrackingEntry = typeof timeTrackingEntries.$inferSelect;
+export type NewTimeTrackingEntry = typeof timeTrackingEntries.$inferInsert;

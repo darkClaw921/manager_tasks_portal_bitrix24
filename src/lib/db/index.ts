@@ -244,6 +244,16 @@ function initializeTables() {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS task_rates_user_task_unique ON task_rates(user_id, task_id);
 
+    CREATE TABLE IF NOT EXISTS time_tracking_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      started_at TEXT NOT NULL,
+      stopped_at TEXT,
+      duration INTEGER,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       key TEXT NOT NULL UNIQUE,

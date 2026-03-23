@@ -22,6 +22,7 @@ export interface TaskRateWithTask extends TaskRate {
   portalColor: string;
   portalDomain: string;
   timeSpent: number | null;
+  trackedTime: number | null;
   closedDate: string | null;
   deadline: string | null;
   responsibleName: string | null;

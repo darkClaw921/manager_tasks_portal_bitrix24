@@ -131,6 +131,13 @@ src/
 │       │   ├── daily/route.ts     # GET: get/generate daily report (?date=YYYY-MM-DD); POST: force-regenerate daily report
 │       │   ├── weekly/route.ts    # GET: get/generate weekly report (?week=YYYY-WNN); POST: force-regenerate weekly report
 │       │   └── chat/route.ts      # POST: AI chat (streaming response); GET: chat history; DELETE: clear chat history
+│       ├── time-tracking/
+│       │   ├── active/route.ts    # GET: active timers for current user (stoppedAt IS NULL), JOIN tasks+portals for taskTitle/portalColor/portalName
+│       │   ├── start/route.ts     # POST: start timer. Body: {taskId}. Checks task access via tasks+portals JOIN, 409 if already running
+│       │   ├── stop/route.ts      # POST: stop timer. Body: {taskId}. Finds active entry, calculates duration in seconds, updates stoppedAt+duration
+│       │   ├── [id]/route.ts      # DELETE: delete time tracking entry. Checks ownership (userId), 404 for missing/other user's entries
+│       │   └── task/
+│       │       └── [taskId]/route.ts # GET: task time tracking summary — all entries, totalDuration, activeEntry. Returns TaskTimeTrackingSummary
 │       ├── install/route.ts        # POST: Bitrix24 app install callback — saves tokens, checks user access via user.current REST API + getMappedBitrixUserIds (returns access denied HTML if user not in mapping, fail-open on errors, skips check if no mappings); GET: serves install HTML page. Functions: getAccessDeniedHtml() — static HTML for denied access; getInstallHtml() — HTML with BX24.installFinish()
 │       └── oauth/callback/route.ts # GET: OAuth callback from Bitrix24 — verifies state JWT, exchanges code for tokens, creates/updates portal (unique by memberId), auto-creates user_portal_access for connecting admin, triggers event registration + stages fetch
 ├── components/
@@ -155,13 +162,13 @@ src/
 │   ├── layout/
 │   │   ├── index.ts               # Barrel export: Sidebar, Header, BottomTabs
 │   │   ├── Sidebar.tsx            # Sidebar: 260px, bg #1E293B, logo, portal list with PortalIndicator, 7+1 NavItems (Dashboard/Задачи/Календарь/Порталы/AI Отчёты/Оплата/Настройки + admin link conditional), real user name/email from /api/auth/me; mobile overlay via Zustand
-│   │   ├── Header.tsx             # Header: SearchInput (desktop), filters button, "Создать задачу" primary button, notification bell with real unread count + NotificationDropdown, avatar; mobile hamburger
+│   │   ├── Header.tsx             # Header: SearchInput (desktop), filters button, "Создать задачу" primary button, ActiveTimersWidget, notification bell with real unread count + NotificationDropdown, avatar; mobile hamburger
 │   │   └── BottomTabs.tsx         # BottomTabs: 7 tabs (Задачи/Мои/Календарь/Порталы/AI/Оплата/Настройки), SVG icons, active state, uses BottomTabBar wrapper
 │   ├── tasks/
 │   │   ├── index.ts               # Barrel export: TaskList, CreateTaskModal, TaskDetail, Comments, Checklist, Files, TaskSidePanel, TaskRateWidget
 │   │   ├── TaskList.tsx           # Task list: uses useTasks hook, portal filter (PortalIndicator chips), status tabs, search with debounce, pagination, skeleton loading, empty state
 │   │   ├── CreateTaskModal.tsx    # Modal: portal select, title, description, priority, deadline, responsible ID, tags; uses useCreateTask; opens via Zustand activeModal='createTask'
-│   │   ├── TaskDetail.tsx         # Full task detail: title, description (HTML), tags, right sidebar (status/priority/responsible/creator/deadline/time/accomplices/auditors/TaskRateWidget/dates/Bitrix24 link), start/complete/delete buttons
+│   │   ├── TaskDetail.tsx         # Full task detail: title, description (HTML), tags, right sidebar (status/priority/responsible/creator/deadline/time/TaskTimerControls/accomplices/auditors/TaskRateWidget/dates/Bitrix24 link), start/complete/delete buttons
 │   │   ├── TaskRateWidget.tsx     # Compact rate widget for TaskDetail sidebar: 4 states (loading skeleton, no-rate button, view mode with type/amount/hours/total/payment badge/note, inline edit form). Uses useTaskRate, useUpsertTaskRate, useDeleteTaskRate hooks. Props: taskId, timeSpent
 │   │   ├── Comments.tsx           # Comment list with author avatar + date + HTML content; add comment form with send button
 │   │   ├── Checklist.tsx          # Checklist: progress bar, checkbox toggle (optimistic), add/delete items, completed count/total
@@ -199,6 +206,10 @@ src/
 │   │   ├── PaymentSummaryCards.tsx # 3 StatCards in grid (Всего заработано/Оплачено/Не оплачено) with RUB currency formatting, loading skeleton. Props: summary: PaymentSummary, loading?: boolean
 │   │   ├── PaymentFilters.tsx     # Horizontal filter panel: portal select, date range (from/to), paid status, task status, user (admin only), reset button. Props: filters, onFiltersChange, portals, isAdmin, users
 │   │   └── PaymentTable.tsx       # Desktop HTML table + mobile cards: checkbox selection, task link, portal indicator, rate type, rate amount, hours, total, task status badge, clickable paid/unpaid badge. Empty state, skeleton loading. Props: rates, selectedIds, onToggleSelect, onSelectAll, onTogglePaid, loading
+│   ├── time-tracking/
+│   │   ├── index.ts               # Barrel export: ActiveTimersWidget, TaskTimerControls
+│   │   ├── ActiveTimersWidget.tsx  # Header dropdown widget: clock icon trigger with active timer count badge, dropdown with timer list (portal indicator, task title, portal name, live HH:MM:SS via useElapsedTime, stop button), click navigates to task, close on outside click/Escape, empty state, loading skeleton. Uses useActiveTimers, useStopTimer, useElapsedTime hooks
+│   │   └── TaskTimerControls.tsx   # Task detail sidebar widget: section header, live timer display + Stop button (red) when active, Start button (primary) when idle, total accumulated time via formatDuration, expandable history list with date/duration/delete per completed session. Props: { taskId: number }. Uses useTaskTimeTracking, useStartTimer, useStopTimer, useDeleteTimeEntry, useElapsedTime, formatDuration
 │   ├── admin/
 │   │   ├── index.ts               # Barrel export: UserTable, CreateUserForm, UserDetailModal
 │   │   ├── UserTable.tsx           # Admin user table: email, name, role badge, portal count, created date; inline edit, delete with confirm; mobile cards layout
@@ -212,8 +223,8 @@ src/
 │   ├── utils/
 │   │   └── sanitize.ts            # HTML sanitization via isomorphic-dompurify: sanitizeHtml() (whitelist of safe tags/attrs), sanitizeText() (strip all tags)
 │   ├── db/
-│   │   ├── index.ts               # DB initialization: creates SQLite connection, 15 tables (incl. app_settings), migrates existing portals to user_portal_access, runs seed
-│   │   ├── schema.ts              # Drizzle ORM schema: 16 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, task_rates, notifications, ai_reports, ai_chat_messages, app_settings)
+│   │   ├── index.ts               # DB initialization: creates SQLite connection, 16 tables (incl. app_settings, time_tracking_entries), migrates existing portals to user_portal_access, runs seed
+│   │   ├── schema.ts              # Drizzle ORM schema: 17 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, task_rates, time_tracking_entries, notifications, ai_reports, ai_chat_messages, app_settings)
 │   │   └── seed.ts                # Admin seed from env vars (ADMIN_EMAIL/PASSWORD) + default app settings seed (work_hours_start=9, work_hours_end=18)
 │   ├── auth/
 │   │   ├── jwt.ts                 # JWT sign/verify with jose (HS256, 7d expiry); getJwtSecret() — environment-aware secret enforcement (throws in production if JWT_SECRET missing, warns+fallback in dev); shared by middleware.ts and oauth.ts
@@ -273,13 +284,14 @@ src/
 │   ├── usePushNotifications.ts    # Push notification hook: isSupported, isSubscribed, permission, subscribe(), unsubscribe(); handles service worker + PushManager lifecycle
 │   ├── useReports.ts             # TanStack Query hooks: useDailyReport(date?), useWeeklyReport(week?), useRegenerateDaily(), useRegenerateWeekly()
 │   ├── useWorkHours.ts           # TanStack Query hooks: useWorkHours() — fetches work hours from /api/settings (queryKey ['settings', 'work-hours'], staleTime 5min, defaults {start:9, end:18}); useUpdateWorkHours() — PATCH /api/settings mutation with cache invalidation
+│   ├── useTimeTracking.ts        # TanStack Query hooks: useActiveTimers() (10s polling), useTaskTimeTracking(taskId) (10s polling), useStartTimer(), useStopTimer(), useDeleteTimeEntry(); utility hook useElapsedTime(startedAt) — live HH:MM:SS; utility function formatDuration(seconds) — HH:MM:SS
 │   └── useUsers.ts               # TanStack Query hooks: useUsers (admin list), useUser(id), useCreateUser, useUpdateUser, useDeleteUser; AdminUser and UserDetail types
 ├── stores/
 │   ├── ui-store.ts                # Zustand store: sidebarOpen, activeModal (createTask/filters), toggle/set/open/close actions
 │   ├── portal-store.ts            # Zustand store with persist: portals[], activePortalId, CRUD actions; persists activePortalId to localStorage
 │   └── calendar-store.ts          # Zustand store with persist: view (CalendarView), currentDate (ISO string), selectedUserIds, slotDuration (30/60/120); actions: setView, setCurrentDate, goToToday, navigateWeek(±1), navigateDay(±1), toggleUser, setSelectedUserIds, setSlotDuration; persists view, slotDuration, selectedUserIds to localStorage key 'taskhub-calendar-store'
 └── types/
-    ├── index.ts                   # Re-exports all types (user, portal, task, calendar, notification, bitrix, api, payment)
+    ├── index.ts                   # Re-exports all types (user, portal, task, calendar, notification, bitrix, api, payment, time-tracking)
     ├── user.ts                    # User, UserWithoutPassword, LoginInput, CreateUserInput, UpdateUserInput
     ├── portal.ts                  # Portal, PortalPublic, CreatePortalInput, UpdatePortalInput, PortalAccessRole, PortalAccessPermissions, UserPortalAccess, UserBitrixMapping, PortalMappingCreate, PortalCustomStage, PortalStageMapping
     ├── task.ts                    # Task, TaskWithPortal, TaskStage, TaskComment, TaskChecklistItem, TaskFile, TaskFilters, Create/UpdateTaskInput
@@ -287,6 +299,7 @@ src/
     ├── notification.ts            # Notification, NotificationType, AIReport, AIChatMessage
     ├── bitrix.ts                  # BitrixResponse, BitrixTask, BitrixStage, BitrixComment, BitrixChecklistItem, BitrixFile, BitrixUser, BitrixTokenResponse, BitrixWebhookEvent
     ├── payment.ts                 # RateType, TaskRate, TaskRateWithTask, UpsertTaskRateInput, PaymentFilters, PaymentSummary
+    ├── time-tracking.ts           # TimeTrackingEntry, ActiveTimerEntry (extends TimeTrackingEntry), TaskTimeTrackingSummary
     └── api.ts                     # ApiResponse<T>, PaginatedResponse<T>, ApiError
 ```
 
@@ -371,7 +384,7 @@ All tables use INTEGER PRIMARY KEY AUTOINCREMENT. Foreign keys enforce CASCADE o
 |-----------|-------------|
 | [TaskList](./src/components/tasks/TaskList.tsx) | Paginated task list with portal filter (PortalIndicator chips), status tabs, search (debounced), skeleton loading, empty state, pagination controls |
 | [CreateTaskModal](./src/components/tasks/CreateTaskModal.tsx) | Modal for creating task: portal select, title, description, priority, deadline, responsible ID, tags. Uses `useCreateTask` mutation |
-| [TaskDetail](./src/components/tasks/TaskDetail.tsx) | Full task view: title, description (HTML), tags, checklist, comments, files. Right sidebar: status/priority/responsible/creator/deadline/time/accomplices/auditors/TaskRateWidget/dates/bitrix_url. Action buttons: start/complete/delete |
+| [TaskDetail](./src/components/tasks/TaskDetail.tsx) | Full task view: title, description (HTML), tags, checklist, comments, files. Right sidebar: status/priority/responsible/creator/deadline/time/TaskTimerControls/accomplices/auditors/TaskRateWidget/dates/bitrix_url. Action buttons: start/complete/delete |
 | [TaskRateWidget](./src/components/tasks/TaskRateWidget.tsx) | Compact rate widget: loading skeleton, "Указать ставку" button, view mode (type/amount/hours/total/payment badge/note + edit/delete), inline edit form (SelectField type, InputField amount, InputField hours, TextareaField note, live total preview). Uses `useTaskRate`, `useUpsertTaskRate`, `useDeleteTaskRate` |
 | [Comments](./src/components/tasks/Comments.tsx) | Comment list (author avatar, date, HTML content) + add comment form |
 | [Checklist](./src/components/tasks/Checklist.tsx) | Checklist with progress bar, toggle checkboxes (optimistic update), add/delete items |
@@ -419,6 +432,7 @@ Reusable components for the payments page. Barrel exported from [`index.ts`](./s
 | [usePushNotifications](./src/hooks/usePushNotifications.ts) | `usePushNotifications()` - push subscription lifecycle: `isSupported`, `isSubscribed`, `permission`, `subscribe()`, `unsubscribe()` |
 | [useReports](./src/hooks/useReports.ts) | `useDailyReport(date?)`, `useWeeklyReport(week?)` - fetch/generate reports; `useRegenerateDaily()`, `useRegenerateWeekly()` - force-regenerate mutations |
 | [useWorkHours](./src/hooks/useWorkHours.ts) | `useWorkHours()` - fetch work hours ({start, end}, defaults 9-18, staleTime 5min); `useUpdateWorkHours()` - PATCH /api/settings mutation with cache invalidation |
+| [useTimeTracking](./src/hooks/useTimeTracking.ts) | `useActiveTimers()` - active timers with 10s polling; `useTaskTimeTracking(taskId)` - task summary with 10s polling; `useStartTimer()`, `useStopTimer()`, `useDeleteTimeEntry()` - mutations with cache invalidation; `useElapsedTime(startedAt)` - live HH:MM:SS display; `formatDuration(seconds)` - format seconds to HH:MM:SS |
 
 ---
 
@@ -530,6 +544,24 @@ Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQL
 | `/api/payments/export` | GET | Export payments as PDF via pdfmake. Same filters as /api/payments. Fetches rates, summary, user info, portal name; calls generatePaymentReport; returns PDF buffer with Content-Type: application/pdf and Content-Disposition: attachment filename="payment-report-YYYY-MM-DD.pdf" |
 
 Route files: [`tasks/[id]/rate/route.ts`](./src/app/api/tasks/[id]/rate/route.ts), [`payments/route.ts`](./src/app/api/payments/route.ts), [`payments/[id]/route.ts`](./src/app/api/payments/[id]/route.ts), [`payments/batch/route.ts`](./src/app/api/payments/batch/route.ts), [`payments/export/route.ts`](./src/app/api/payments/export/route.ts)
+
+### Time Tracking API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/time-tracking/active` | GET | Active timers for current user (stoppedAt IS NULL). JOIN tasks+portals for taskTitle, portalColor, portalName. Returns `{ data: ActiveTimerEntry[] }` |
+| `/api/time-tracking/start` | POST | Start timer. Body: `{taskId}`. Checks task access via tasks+portals JOIN, 409 if timer already running for this task+user. Returns `{ data: TimeTrackingEntry }` (201) |
+| `/api/time-tracking/stop` | POST | Stop timer. Body: `{taskId}`. Finds active entry, calculates duration in seconds (Date.now - startedAt). Returns `{ data: TimeTrackingEntry }` |
+| `/api/time-tracking/task/[taskId]` | GET | Task time tracking summary: all entries (DESC), totalDuration (sum of completed), activeEntry. Returns `{ data: TaskTimeTrackingSummary }` |
+| `/api/time-tracking/[id]` | DELETE | Delete entry. Ownership check (userId), 404 for missing/other user. Returns `{ data: { message: 'Deleted' } }` |
+
+Route files: [`time-tracking/active/route.ts`](./src/app/api/time-tracking/active/route.ts), [`time-tracking/start/route.ts`](./src/app/api/time-tracking/start/route.ts), [`time-tracking/stop/route.ts`](./src/app/api/time-tracking/stop/route.ts), [`time-tracking/task/[taskId]/route.ts`](./src/app/api/time-tracking/task/[taskId]/route.ts), [`time-tracking/[id]/route.ts`](./src/app/api/time-tracking/[id]/route.ts)
+
+### Time Tracking UI
+
+- **ActiveTimersWidget** ([`components/time-tracking/ActiveTimersWidget.tsx`](./src/components/time-tracking/ActiveTimersWidget.tsx)): header dropdown widget with clock icon trigger, badge showing active timer count (hidden at 0), dropdown with timer list showing portal color, task title, portal name, live elapsed time (HH:MM:SS via useElapsedTime), stop button per timer, click navigates to task page, close on outside click + Escape, loading skeleton, empty state
+- **TaskTimerControls** ([`components/time-tracking/TaskTimerControls.tsx`](./src/components/time-tracking/TaskTimerControls.tsx)): task detail sidebar section with Start/Stop timer buttons, live elapsed time display, total accumulated duration, expandable session history with date, duration, and delete button per completed entry. Props: `{ taskId: number }`
+- Hooks used: `useActiveTimers`, `useTaskTimeTracking`, `useStartTimer`, `useStopTimer`, `useDeleteTimeEntry`, `useElapsedTime`, `formatDuration` from [`useTimeTracking.ts`](./src/hooks/useTimeTracking.ts)
 
 ### Webhook Handler ([`api/webhooks/bitrix/route.ts`](./src/app/api/webhooks/bitrix/route.ts))
 

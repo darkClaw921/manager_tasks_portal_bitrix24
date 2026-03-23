@@ -14,6 +14,7 @@ import type { RateType } from '@/types';
 export interface TaskRateWidgetProps {
   taskId: number;
   timeSpent?: number | null;
+  trackedTime?: number | null;
 }
 
 function PencilIcon({ className }: { className?: string }) {
@@ -60,7 +61,7 @@ function calculateTotal(
   return amount * hours;
 }
 
-export function TaskRateWidget({ taskId, timeSpent }: TaskRateWidgetProps) {
+export function TaskRateWidget({ taskId, timeSpent, trackedTime }: TaskRateWidgetProps) {
   const { data: rate, isLoading } = useTaskRate(taskId);
   const upsertRate = useUpsertTaskRate();
   const deleteRate = useDeleteTaskRate();
@@ -150,7 +151,8 @@ export function TaskRateWidget({ taskId, timeSpent }: TaskRateWidgetProps) {
 
   // Edit form
   if (editing) {
-    const timeSpentHours = getHoursFromTimeSpent(timeSpent);
+    const effectiveTime = trackedTime || timeSpent;
+    const timeSpentHours = getHoursFromTimeSpent(effectiveTime);
     const previewHours = hoursOverride ? parseFloat(hoursOverride) || 0 : timeSpentHours;
     const previewAmount = parseFloat(amount) || 0;
     const previewTotal = calculateTotal(rateType, previewAmount, previewHours);
@@ -247,7 +249,8 @@ export function TaskRateWidget({ taskId, timeSpent }: TaskRateWidgetProps) {
   }
 
   // View mode - display existing rate
-  const hours = rate.hoursOverride ?? getHoursFromTimeSpent(timeSpent);
+  // Priority: hoursOverride > trackedTime > timeSpent (Bitrix)
+  const hours = rate.hoursOverride ?? (trackedTime ? getHoursFromTimeSpent(trackedTime) : getHoursFromTimeSpent(timeSpent));
   const total = calculateTotal(rate.rateType, rate.amount, hours);
 
   return (

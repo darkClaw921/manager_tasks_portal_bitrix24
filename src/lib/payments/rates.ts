@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { taskRates, tasks, portals, users, userBitrixMappings } from '@/lib/db/schema';
+import { taskRates, tasks, portals, users, userBitrixMappings, timeTrackingEntries } from '@/lib/db/schema';
 import { eq, and, sql, inArray, gte, lte } from 'drizzle-orm';
 import type {
   TaskRateWithTask,
@@ -83,6 +83,7 @@ function mapRowToTaskRateWithTask(row: {
   portalColor: string;
   portalDomain: string;
   timeSpent: number | null;
+  trackedTime: number | null;
   closedDate: string | null;
   deadline: string | null;
   responsibleName: string | null;
@@ -108,6 +109,7 @@ function mapRowToTaskRateWithTask(row: {
     portalColor: row.portalColor,
     portalDomain: row.portalDomain,
     timeSpent: row.timeSpent,
+    trackedTime: row.trackedTime,
     closedDate: row.closedDate,
     deadline: row.deadline,
     responsibleName: row.responsibleName,
@@ -135,6 +137,7 @@ const rateWithTaskSelect = {
   portalColor: portals.color,
   portalDomain: portals.domain,
   timeSpent: tasks.timeSpent,
+  trackedTime: sql<number | null>`(SELECT SUM(${timeTrackingEntries.duration}) FROM ${timeTrackingEntries} WHERE ${timeTrackingEntries.taskId} = ${tasks.id} AND ${timeTrackingEntries.userId} = ${taskRates.userId} AND ${timeTrackingEntries.stoppedAt} IS NOT NULL)`,
   closedDate: tasks.closedDate,
   deadline: tasks.deadline,
   responsibleName: tasks.responsibleName,
@@ -364,6 +367,7 @@ export function getPaymentSummary(
       hoursOverride: taskRates.hoursOverride,
       isPaid: taskRates.isPaid,
       timeSpent: tasks.timeSpent,
+      trackedTime: sql<number | null>`(SELECT SUM(${timeTrackingEntries.duration}) FROM ${timeTrackingEntries} WHERE ${timeTrackingEntries.taskId} = ${tasks.id} AND ${timeTrackingEntries.userId} = ${taskRates.userId} AND ${timeTrackingEntries.stoppedAt} IS NOT NULL)`,
     })
     .from(taskRates)
     .innerJoin(tasks, eq(taskRates.taskId, tasks.id))
@@ -378,7 +382,7 @@ export function getPaymentSummary(
   for (const row of rows) {
     let earned: number;
     if (row.rateType === 'hourly') {
-      const hours = row.hoursOverride ?? (row.timeSpent ? row.timeSpent / 3600 : 0);
+      const hours = row.hoursOverride ?? (row.trackedTime ? row.trackedTime / 3600 : (row.timeSpent ? row.timeSpent / 3600 : 0));
       earned = row.amount * hours;
     } else {
       earned = row.amount;
