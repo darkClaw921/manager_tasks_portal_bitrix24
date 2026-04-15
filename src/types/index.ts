@@ -6,4 +6,6 @@ export type * from './notification';
 export type * from './bitrix';
 export type * from './api';
 export type * from './payment';
+export type * from './payment-request';
 export type * from './time-tracking';
+export type * from './wallet';

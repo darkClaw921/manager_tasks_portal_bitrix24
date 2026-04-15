@@ -8,6 +8,7 @@ import type {
   PaymentSummary,
 } from '@/types/payment';
 import type { TaskRate } from '@/lib/db/schema';
+import { computeExpectedAmount } from '@/lib/payments/calc';
 
 // ==================== Single Rate ====================
 
@@ -64,7 +65,7 @@ function buildFilters(userId: number | null, filters: PaymentFilters) {
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
-function mapRowToTaskRateWithTask(row: {
+export function mapRowToTaskRateWithTask(row: {
   id: number;
   userId: number;
   taskId: number;
@@ -118,7 +119,7 @@ function mapRowToTaskRateWithTask(row: {
   };
 }
 
-const rateWithTaskSelect = {
+export const rateWithTaskSelect = {
   id: taskRates.id,
   userId: taskRates.userId,
   taskId: taskRates.taskId,
@@ -380,13 +381,11 @@ export function getPaymentSummary(
   let totalUnpaid = 0;
 
   for (const row of rows) {
-    let earned: number;
-    if (row.rateType === 'hourly') {
-      const hours = row.hoursOverride ?? (row.trackedTime ? row.trackedTime / 3600 : (row.timeSpent ? row.timeSpent / 3600 : 0));
-      earned = row.amount * hours;
-    } else {
-      earned = row.amount;
-    }
+    const earned = computeExpectedAmount(
+      { rateType: row.rateType, amount: row.amount, hoursOverride: row.hoursOverride },
+      { timeSpent: row.timeSpent },
+      row.trackedTime
+    );
 
     totalEarned += earned;
     if (row.isPaid) {

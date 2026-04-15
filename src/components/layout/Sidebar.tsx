@@ -58,6 +58,14 @@ function PaymentsIcon() {
   );
 }
 
+function WalletIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 0 0-2.25-2.25H15a3 3 0 1 1-6 0H5.25A2.25 2.25 0 0 0 3 12m18 0v6a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 18v-6m18 0V9A2.25 2.25 0 0 0 18.75 6.75H5.25A2.25 2.25 0 0 0 3 9v3" />
+    </svg>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -82,6 +90,7 @@ const NAV_ITEMS = [
   { href: '/portals', label: 'Порталы', icon: <PortalsIcon /> },
   { href: '/reports', label: 'AI Отчёты', icon: <ReportsIcon /> },
   { href: '/payments', label: 'Оплата', icon: <PaymentsIcon /> },
+  { href: '/wallet', label: 'Кошелёк', icon: <WalletIcon /> },
   { href: '/settings', label: 'Настройки', icon: <SettingsIcon /> },
 ];
 

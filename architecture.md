@@ -66,8 +66,10 @@ src/
 │   │   │   ├── page.tsx           # AI Reports page: Daily/Weekly tabs, StatCards, AI markdown summary, regenerate, AI chat
 │   │   │   └── loading.tsx        # Reports skeleton: StatCards + content area
 │   │   ├── payments/
-│   │   │   ├── page.tsx           # Payments page: PaymentSummaryCards + PaymentFilters + batch actions bar + PaymentTable + pagination + PDF export. Uses usePayments, useUpdatePaymentStatus, useBatchUpdatePaymentStatus hooks. Admin sees user filter
+│   │   │   ├── page.tsx           # Payments page: PaymentSummaryCards + PaymentFilters + batch actions bar + PaymentTable + pagination + PDF export. Uses usePayments, useUpdatePaymentStatus, useBatchUpdatePaymentStatus hooks. Admin sees user filter. Admin-only additions (Phase 6): header button "Отправить запрос оплаты" (opens PaymentRequestCreateDialog with presetUserId from filters.userId and presetRateIds from current selection), and tabs "Все платежи" | "Исходящие запросы" (OutgoingRequestsList). Non-admins never see the button or the tab switcher
 │   │   │   └── loading.tsx        # Payments skeleton: 3 StatCardSkeleton + filters + 5 table row skeletons
+│   │   ├── wallet/
+│   │   │   └── page.tsx           # Wallet page: header "Кошелёк" + WalletSummaryCards + 4 табы (Заработано/Ожидается/Отложено/Запросы оплаты) с синхронизацией через ?tab= search param. Табы earned/expected/deferred рендерят WalletRatesTable через useWalletRates({ group }); клик "Изменить" открывает CustomPaymentDialog. Таб 'requests' рендерит PaymentRequestInbox (входящие payment requests). Использует useWalletSummary, useWalletRates из useWallet
 │   │   └── admin/
 │   │       ├── layout.tsx         # Admin layout guard: checks isAdmin via /api/auth/me, redirects non-admins to /dashboard
 │   │       └── users/
@@ -138,6 +140,17 @@ src/
 │       │   ├── [id]/route.ts      # DELETE: delete time tracking entry. Checks ownership (userId), 404 for missing/other user's entries
 │       │   └── task/
 │       │       └── [taskId]/route.ts # GET: task time tracking summary — all entries, totalDuration, activeEntry. Returns TaskTimeTrackingSummary
+│       ├── wallet/
+│       │   ├── summary/route.ts     # GET: aggregated wallet figures for current user — calls getWalletSummary. Returns { data: WalletSummary }. 401 unauth, 500 on DB error
+│       │   └── rates/
+│       │       ├── route.ts          # GET: user's rates enriched with paidAmount/expectedAmount/paymentStatus — calls getWalletRates(userId, { group? }). Validates ?group ∈ earned|expected|deferred (400 on invalid). Returns { data: WalletRate[] }
+│       │       └── [id]/paid-amount/route.ts # PATCH: update paidAmount on a rate the caller owns. Body: { paidAmount: number } (finite, >=0). Ownership check via getTaskRateById (404/403). Delegates to setPaidAmount which auto-syncs isPaid/paidAt. Returns { data: TaskRate }
+│       ├── payment-requests/
+│       │   ├── route.ts              # POST: admin creates a payment request (isAdmin required, body {toUserId, items[{taskRateId, proposedAmount}], note?}, validation inline, returns 201 + created PaymentRequest). GET: ?direction=incoming|outgoing — incoming returns requests where toUserId=current user; outgoing returns fromUserId=current user (admin only, 403 otherwise). Exports mapPaymentRequestError helper for sibling routes
+│       │   └── [id]/
+│       │       ├── route.ts              # GET: returns full PaymentRequest detail (sender or recipient only). 404 if missing, 403 if caller is neither from/to user
+│       │       ├── accept/route.ts       # POST: recipient accepts pending request. Optional body { overrides?: Record<itemIdStr, number> }. Accumulates applied amount onto taskRates.paidAmount, recomputes isPaid, status becomes 'modified' if overrides present else 'accepted'. 409 if not pending, 403 if not recipient
+│       │       └── reject/route.ts       # POST: recipient rejects pending request. No body. Status='rejected', respondedAt=now. 409 if not pending, 403 if not recipient
 │       ├── install/route.ts        # POST: Bitrix24 app install callback — saves tokens, checks user access via user.current REST API + getMappedBitrixUserIds (returns access denied HTML if user not in mapping, fail-open on errors, skips check if no mappings); GET: serves install HTML page. Functions: getAccessDeniedHtml() — static HTML for denied access; getInstallHtml() — HTML with BX24.installFinish()
 │       └── oauth/callback/route.ts # GET: OAuth callback from Bitrix24 — verifies state JWT, exchanges code for tokens, creates/updates portal (unique by memberId), auto-creates user_portal_access for connecting admin, triggers event registration + stages fetch
 ├── components/
@@ -161,7 +174,7 @@ src/
 │   │   └── Toast.tsx              # Toast notification system: ToastProvider (wraps app), useToast hook, 4 types (success/error/warning/info), auto-dismiss, slide-in animation
 │   ├── layout/
 │   │   ├── index.ts               # Barrel export: Sidebar, Header, BottomTabs
-│   │   ├── Sidebar.tsx            # Sidebar: 260px, bg #1E293B, logo, portal list with PortalIndicator, 7+1 NavItems (Dashboard/Задачи/Календарь/Порталы/AI Отчёты/Оплата/Настройки + admin link conditional), real user name/email from /api/auth/me; mobile overlay via Zustand
+│   │   ├── Sidebar.tsx            # Sidebar: 260px, bg #1E293B, logo, portal list with PortalIndicator, 8+1 NavItems (Dashboard/Задачи/Календарь/Порталы/AI Отчёты/Оплата/Кошелёк/Настройки + admin link conditional), real user name/email from /api/auth/me; mobile overlay via Zustand. Icons: DashboardIcon, TasksIcon, CalendarIcon, PortalsIcon, ReportsIcon, PaymentsIcon, WalletIcon (кошелёк — прямоугольник с кармашком), SettingsIcon, AdminIcon
 │   │   ├── Header.tsx             # Header: SearchInput (desktop), filters button, "Создать задачу" primary button, ActiveTimersWidget, notification bell with real unread count + NotificationDropdown, avatar; mobile hamburger
 │   │   └── BottomTabs.tsx         # BottomTabs: 7 tabs (Задачи/Мои/Календарь/Порталы/AI/Оплата/Настройки), SVG icons, active state, uses BottomTabBar wrapper
 │   ├── tasks/
@@ -202,10 +215,20 @@ src/
 │   │   ├── ReportSummary.tsx      # Report display: 4 StatCards (total/completed/inProgress/overdue), markdown content via react-markdown, regenerate button, loading skeleton, empty state
 │   │   └── ReportChat.tsx         # AI chat interface: message bubbles (user/assistant), streaming typing effect, suggestion chips, auto-scroll, markdown rendering, clear history, Enter to send
 │   ├── payments/
-│   │   ├── index.ts               # Barrel export: PaymentSummaryCards, PaymentFilters, PaymentTable
+│   │   ├── index.ts               # Barrel export: PaymentSummaryCards, PaymentFilters, PaymentTable, PaymentRequestCreateDialog
 │   │   ├── PaymentSummaryCards.tsx # 3 StatCards in grid (Всего заработано/Оплачено/Не оплачено) with RUB currency formatting, loading skeleton. Props: summary: PaymentSummary, loading?: boolean
 │   │   ├── PaymentFilters.tsx     # Horizontal filter panel: portal select, date range (from/to), paid status, task status, user (admin only), reset button. Props: filters, onFiltersChange, portals, isAdmin, users
-│   │   └── PaymentTable.tsx       # Desktop HTML table + mobile cards: checkbox selection, task link, portal indicator, rate type, rate amount, hours, total, task status badge, clickable paid/unpaid badge. Empty state, skeleton loading. Props: rates, selectedIds, onToggleSelect, onSelectAll, onTogglePaid, loading
+│   │   ├── PaymentTable.tsx       # Desktop HTML table + mobile cards: checkbox selection, task link, portal indicator, rate type, rate amount, hours, total, task status badge, clickable paid/unpaid badge. Empty state, skeleton loading. Props: rates, selectedIds, onToggleSelect, onSelectAll, onTogglePaid, loading
+│   │   └── PaymentRequestCreateDialog.tsx # Admin-only dialog (Phase 6) to create a payment request. Props: { open, onOpenChange, presetUserId?, presetRateIds? }. Flow: pick recipient via useUsers dropdown → fetch his rates from /api/wallet/rates?userId=X (admin branch) → filter to outstanding (paidAmount < expectedAmount) → render checkbox list with per-rate numeric input pre-filled to remaining amount → optional note textarea → live total → submit via useCreatePaymentRequest. Validation: ≥1 item selected, each proposedAmount > 0. Esc/backdrop close, toast feedback on success/error
+│   ├── wallet/
+│   │   ├── index.ts               # Barrel export: WalletSummaryCards, WalletRatesTable, CustomPaymentDialog, PaymentRequestInbox, PaymentRequestCard, PaymentRequestModifyDialog, OutgoingRequestsList
+│   │   ├── WalletSummaryCards.tsx # 4 StatCards in grid (Заработано/Ожидается/Оплачено/К получению) with RUB currency formatting, loading skeleton (StatCardSkeleton × 4). Props: summary: WalletSummary, loading?: boolean. Each card uses inline SVG icon (Wallet/Hourglass/CheckCircle/AlertCircle); 'Оплачено'/'К получению' have success/danger border tint
+│   │   ├── WalletRatesTable.tsx   # Desktop HTML table + mobile cards rendering WalletRate[]: task link, portal indicator, expectedAmount, paidAmount, progress bar (paid/expected %) color-coded by paymentStatus, status badge (unpaid=danger, partial=warning, paid=success, overpaid=primary), "Изменить" button. Empty state, skeleton loading. Props: rates, loading?, onEdit(rate)
+│   │   ├── CustomPaymentDialog.tsx # Modal manual paidAmount editor. Props: { rate: WalletRate | null, onClose }. Shows task title + expectedAmount (read-only), 3 quick-pick buttons (Полностью/Не оплачено/Своё), free-form numeric InputField, live progress bar, Save/Cancel footer. Uses useSetPaidAmount mutation + useToast. Esc/backdrop close, validation (finite >= 0). Returns null when rate is null (caller-controlled open state)
+│   │   ├── PaymentRequestInbox.tsx # User-side inbox of incoming payment requests. Uses useIncomingRequests(). Splits list into "Ожидают ответа" (status=pending, sorted by createdAt DESC) and "История" (accepted/modified/rejected, sorted by respondedAt DESC). Loading state: 2 card skeletons. Error state: EmptyState with ErrorIcon + message. Empty state: EmptyState with InboxIcon. Rendered inside /wallet?tab=requests
+│   │   ├── PaymentRequestCard.tsx # One PaymentRequest card. Props: { request: PaymentRequest, hideActions?: boolean }. Shows fromUserName, createdAt (+ respondedAt for non-pending), colored status badge, items list (taskTitle + proposedAmount + expectedAmount + appliedAmount-if-set), optional note block, totalAmount. For status='pending' renders 3 actions (unless hideActions=true, used by OutgoingRequestsList where the caller is the sender, not the recipient): "Принять как есть" (useAcceptPaymentRequest without overrides), "Изменить и принять" (opens PaymentRequestModifyDialog), "Отклонить" (window.confirm + useRejectPaymentRequest). For non-pending hides actions. Uses useToast for feedback
+│   │   ├── PaymentRequestModifyDialog.tsx # Modal for per-item override editing. Props: { request: PaymentRequest | null, onClose }. Seeds form with proposedAmount per item, shows expectedAmount read-only, live-computes total, warns visually when appliedAmount > expectedAmount (overpaid). Submit builds `overrides` map containing ONLY items whose value differs from proposedAmount, then calls useAcceptPaymentRequest({ overrides }). If no diffs, sends plain accept. Esc/backdrop close, validation (finite >= 0). Returns null when request is null
+│   │   └── OutgoingRequestsList.tsx # Admin-only outgoing payment requests view (Phase 6). Uses useOutgoingRequests(). Desktop: HTML table (Получатель / Сумма / Статус / Создан / Ответил); Mobile: card list. Rows sorted by createdAt DESC. Click row → modal with PaymentRequestCard (hideActions=true so pending requests do not surface accept/reject buttons to the sender). Loading skeletons, error and empty states. Rendered inside the 'Исходящие запросы' tab on /payments
 │   ├── time-tracking/
 │   │   ├── index.ts               # Barrel export: ActiveTimersWidget, TaskTimerControls
 │   │   ├── ActiveTimersWidget.tsx  # Header dropdown widget: clock icon trigger with active timer count badge, dropdown with timer list (portal indicator, task title, portal name, live HH:MM:SS via useElapsedTime, stop button), click navigates to task, close on outside click/Escape, empty state, loading skeleton. Uses useActiveTimers, useStopTimer, useElapsedTime hooks
@@ -223,8 +246,8 @@ src/
 │   ├── utils/
 │   │   └── sanitize.ts            # HTML sanitization via isomorphic-dompurify: sanitizeHtml() (whitelist of safe tags/attrs), sanitizeText() (strip all tags)
 │   ├── db/
-│   │   ├── index.ts               # DB initialization: creates SQLite connection, 16 tables (incl. app_settings, time_tracking_entries), migrates existing portals to user_portal_access, runs seed
-│   │   ├── schema.ts              # Drizzle ORM schema: 17 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, task_rates, time_tracking_entries, notifications, ai_reports, ai_chat_messages, app_settings)
+│   │   ├── index.ts               # DB initialization: creates SQLite connection, 19 tables (incl. app_settings, time_tracking_entries, payment_requests, payment_request_items), migrates existing portals to user_portal_access, runtime ALTER migrations (added paid_amount column on task_rates), runs seed
+│   │   ├── schema.ts              # Drizzle ORM schema: 19 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, task_rates (with paidAmount for partial payments), time_tracking_entries, payment_requests, payment_request_items, notifications, ai_reports, ai_chat_messages, app_settings)
 │   │   └── seed.ts                # Admin seed from env vars (ADMIN_EMAIL/PASSWORD) + default app settings seed (work_hours_start=9, work_hours_end=18)
 │   ├── auth/
 │   │   ├── jwt.ts                 # JWT sign/verify with jose (HS256, 7d expiry); getJwtSecret() — environment-aware secret enforcement (throws in production if JWT_SECRET missing, warns+fallback in dev); shared by middleware.ts and oauth.ts
@@ -252,8 +275,12 @@ src/
 │   │   ├── notification-resolver.ts # Notification recipient resolution: resolveNotificationRecipients(portalId, task) — collects bitrix user IDs from task, maps to app users, filters by can_see_* permissions, fallback to portal admin; resolveRecipientsForMention(portalId, bitrixUserIds) — maps mentioned bitrix IDs to app users without permission filtering
 │   │   └── task-filter.ts         # Task access filtering: buildTaskAccessFilter(userId) — builds parameterized SQL WHERE using Drizzle ORM operators (eq, like, or, and) based on user_portal_access permissions + user_bitrix_mappings; buildPortalTaskFilter(userId, portalId) — single portal variant; returns SQL type; uses like() for JSON array fields (accomplices, auditors); getAccessiblePortalIds(userId) — returns portal ID list
 │   ├── payments/
-│   │   ├── rates.ts               # Payment data access layer: getTaskRateForUser (single rate), getTaskRatesForUser (paginated with JOIN tasks+portals), getAllTaskRates (admin, with JOIN users), upsertTaskRate (INSERT ON CONFLICT UPDATE on user_id+task_id), updatePaymentStatus/updatePaymentStatusAdmin (toggle isPaid+paidAt), batchUpdatePaymentStatus/batchUpdatePaymentStatusAdmin (bulk toggle), getPaymentSummary (JS aggregation: totalEarned/totalPaid/totalUnpaid/taskCount, hourly=amount*hours, fixed=amount), deleteTaskRate, isUserParticipant (checks via userBitrixMappings -> responsibleId/creatorId/accomplices/auditors), getTaskRateById
+│   │   ├── calc.ts                # Shared expected-amount helper: computeExpectedAmount(rate, task, trackedTime?) -> number. Formula: hourly = amount * (hoursOverride ?? trackedTime/3600 ?? timeSpent/3600 ?? 0), fixed = amount. Used by getPaymentSummary and (downstream) wallet layer to keep expected-amount math in one place. Exports ExpectedAmountRate, ExpectedAmountTask structural types
+│   │   ├── rates.ts               # Payment data access layer: getTaskRateForUser (single rate), getTaskRatesForUser (paginated with JOIN tasks+portals), getAllTaskRates (admin, with JOIN users), upsertTaskRate (INSERT ON CONFLICT UPDATE on user_id+task_id), updatePaymentStatus/updatePaymentStatusAdmin (toggle isPaid+paidAt), batchUpdatePaymentStatus/batchUpdatePaymentStatusAdmin (bulk toggle), getPaymentSummary (JS aggregation via computeExpectedAmount: totalEarned/totalPaid/totalUnpaid/taskCount), deleteTaskRate, isUserParticipant (checks via userBitrixMappings -> responsibleId/creatorId/accomplices/auditors), getTaskRateById. Exports rateWithTaskSelect (shared Drizzle select shape with subquery for trackedTime) and mapRowToTaskRateWithTask (row → TaskRateWithTask mapper) for reuse by wallet layer
 │   │   └── pdf-generator.ts       # PDF report generator using pdfmake. Exports generatePaymentReport(params) -> Promise<Buffer>. Generates A4 landscape PDF with: title, user info (name/email/date), applied filters, summary cards (total/paid/unpaid in RUB), data table (task/portal/rate type/amount/hours/total/status/payment), total row, page numbers footer. Uses Roboto fonts for Cyrillic support. Calculates totals: hourly=amount*hours(hoursOverride ?? timeSpent/3600), fixed=amount. Russian status translations.
+│   ├── wallet/
+│   │   ├── payment-requests.ts    # Payment request service layer. PaymentRequestError class (codes: NOT_FOUND, FORBIDDEN, CONFLICT, VALIDATION). createPaymentRequest(adminId, input) — validates items non-empty, toUserId!==adminId, proposedAmount>0, all taskRateIds exist and belong to toUserId; in db.transaction inserts paymentRequests + paymentRequestItems + notifications row (type='payment_request', title='Новый запрос оплаты', message=note, portalId/taskId null). listIncomingRequests(userId) / listOutgoingRequests(adminId) — ordered by createdAt DESC, batch-load items + joined user names + taskTitle + expectedAmount (computed via computeExpectedAmount over task + rate + trackedTime subquery). getPaymentRequestDetail(requestId, userId) — sender or recipient only, throws NOT_FOUND/FORBIDDEN. acceptPaymentRequest(userId, requestId, overrides?) — validates pending + recipient + override keys reference valid item ids; in db.transaction: for each item applies (override ?? proposedAmount) to taskRates.paidAmount cumulatively (NOT overwriting), sets isPaid = (paidAmount >= expectedAmount), persists paymentRequestItems.appliedAmount, status='modified' if any override else 'accepted'. rejectPaymentRequest(userId, requestId) — pending+recipient check, status='rejected', respondedAt=now. Private helpers loadPaymentRequestById / loadPaymentRequestsByIds assemble PaymentRequest by joining users for names and taskRates+tasks+timeTrackingEntries for expectedAmount
+│   │   └── wallet.ts              # Wallet service layer. getWalletSummary(userId) — single JOIN query + JS aggregation via computeExpectedAmount, buckets rates by parent task status (COMPLETED/SUPPOSEDLY_COMPLETED → earned; NEW/PENDING/IN_PROGRESS → expected; DEFERRED → deferred), sums paidAmount on earned bucket, returns { earned, expected, deferred, paid, outstanding, tasksEarnedCount, tasksExpectedCount } rounded to 2dp. getWalletRates(userId, { group? }) — returns WalletRate[] reusing rateWithTaskSelect/mapRowToTaskRateWithTask from payments/rates.ts, enriched with paidAmount/expectedAmount and derivePaymentStatus (unpaid|partial|paid|overpaid, epsilon-tolerant). setPaidAmount(userId, rateId, paidAmount) — ownership-checked UPDATE on task_rates, derives isPaid from paidAmount vs computed expectedAmount, sets/clears paidAt accordingly. Exports WalletGroup union and TASK_STATUS_GROUP constant.
 │   ├── calendar/
 │   │   └── utils.ts               # Calendar utilities: constants (HOUR_HEIGHT=80, WORK_HOURS 9-18, MAX_OVERLAP_COLUMNS=4), range helpers (getWeekRange Mon-Sun, getDayRange), pixel calculations (timeToPixelOffset clamped 0-720, getTaskTimeBlock from startDatePlan/endDatePlan/deadline), overlap algorithm (resolveOverlaps greedy column packing with cap at 4 columns — tasks beyond cap get hidden=true, carrier task gets overflowCount), free slot finder (findFreeSlots 30-min increment bitmap), busy level (getBusyLevel), Russian locale date formatting (formatWeekLabel, formatDayLabel, getDayShortName, isToday, isSameDay, isWeekend)
 │   ├── notifications/
@@ -280,6 +307,8 @@ src/
 │   ├── useTasks.ts                # TanStack Query hooks: useTasks (filtered list), useCreateTask, useUpdateTask, useDeleteTask, useStartTask, useCompleteTask, useRenewTask, useMoveTaskStage
 │   ├── useTask.ts                 # TanStack Query hooks: useTask (single with comments/checklist/files), useAddComment, useAddChecklistItem, useToggleChecklistItem (optimistic), useDeleteChecklistItem
 │   ├── usePayments.ts             # TanStack Query hooks: useTaskRate(taskId), useUpsertTaskRate(), useDeleteTaskRate(), usePayments(filters), useUpdatePaymentStatus(), useBatchUpdatePaymentStatus()
+│   ├── useWallet.ts               # TanStack Query hooks for the user wallet: useWalletSummary() — GET /api/wallet/summary, queryKey ['wallet','summary']; useWalletRates(filters?: { group?: 'earned'|'expected'|'deferred' }) — GET /api/wallet/rates[?group=...], queryKey ['wallet','rates', filters]; useSetPaidAmount() — PATCH /api/wallet/rates/[id]/paid-amount mutation, onSuccess invalidates ['wallet'] и ['payments']. Exports WalletRatesFilters и SetPaidAmountInput types
+│   ├── usePaymentRequests.ts      # TanStack Query hooks for payment requests: useIncomingRequests() — GET /api/payment-requests?direction=incoming, queryKey ['payment-requests','incoming']; useOutgoingRequests() — GET ?direction=outgoing, queryKey ['payment-requests','outgoing']; useCreatePaymentRequest() — POST /api/payment-requests, invalidates ['payment-requests'], ['wallet'], ['payments']; useAcceptPaymentRequest() — POST /api/payment-requests/[id]/accept with optional body { overrides }, invalidates ['payment-requests'], ['wallet'], ['payments']; useRejectPaymentRequest() — POST /api/payment-requests/[id]/reject, invalidates only ['payment-requests']. Exports AcceptPaymentRequestVariables { id, input? } and RejectPaymentRequestVariables { id }
 │   ├── useNotifications.ts        # TanStack Query hooks: useNotifications (paginated list), useUnreadCount (30s polling), useMarkAsRead, useMarkAllAsRead
 │   ├── usePushNotifications.ts    # Push notification hook: isSupported, isSubscribed, permission, subscribe(), unsubscribe(); handles service worker + PushManager lifecycle
 │   ├── useReports.ts             # TanStack Query hooks: useDailyReport(date?), useWeeklyReport(week?), useRegenerateDaily(), useRegenerateWeekly()
@@ -291,7 +320,7 @@ src/
 │   ├── portal-store.ts            # Zustand store with persist: portals[], activePortalId, CRUD actions; persists activePortalId to localStorage
 │   └── calendar-store.ts          # Zustand store with persist: view (CalendarView), currentDate (ISO string), selectedUserIds, slotDuration (30/60/120); actions: setView, setCurrentDate, goToToday, navigateWeek(±1), navigateDay(±1), toggleUser, setSelectedUserIds, setSlotDuration; persists view, slotDuration, selectedUserIds to localStorage key 'taskhub-calendar-store'
 └── types/
-    ├── index.ts                   # Re-exports all types (user, portal, task, calendar, notification, bitrix, api, payment, time-tracking)
+    ├── index.ts                   # Re-exports all types (user, portal, task, calendar, notification, bitrix, api, payment, payment-request, time-tracking, wallet)
     ├── user.ts                    # User, UserWithoutPassword, LoginInput, CreateUserInput, UpdateUserInput
     ├── portal.ts                  # Portal, PortalPublic, CreatePortalInput, UpdatePortalInput, PortalAccessRole, PortalAccessPermissions, UserPortalAccess, UserBitrixMapping, PortalMappingCreate, PortalCustomStage, PortalStageMapping
     ├── task.ts                    # Task, TaskWithPortal, TaskStage, TaskComment, TaskChecklistItem, TaskFile, TaskFilters, Create/UpdateTaskInput
@@ -299,7 +328,9 @@ src/
     ├── notification.ts            # Notification, NotificationType, AIReport, AIChatMessage
     ├── bitrix.ts                  # BitrixResponse, BitrixTask, BitrixStage, BitrixComment, BitrixChecklistItem, BitrixFile, BitrixUser, BitrixTokenResponse, BitrixWebhookEvent
     ├── payment.ts                 # RateType, TaskRate, TaskRateWithTask, UpsertTaskRateInput, PaymentFilters, PaymentSummary
+    ├── payment-request.ts         # Payment-request types: PaymentRequestStatus ('pending'|'accepted'|'modified'|'rejected'), PaymentRequestItem (id/taskRateId/taskTitle/proposedAmount/appliedAmount?/expectedAmount), PaymentRequest (id/fromUserId+Name/toUserId+Name/totalAmount/note/status/respondedAt/createdAt/items[]), CreatePaymentRequestInput ({toUserId, items:[{taskRateId, proposedAmount}], note?}), AcceptPaymentRequestInput ({overrides?: Record<itemIdStr, number>})
     ├── time-tracking.ts           # TimeTrackingEntry, ActiveTimerEntry (extends TimeTrackingEntry), TaskTimeTrackingSummary
+    ├── wallet.ts                  # Wallet types: WalletPaymentStatus ('unpaid'|'partial'|'paid'|'overpaid'), WalletRate (extends TaskRateWithTask + paidAmount/expectedAmount/paymentStatus), WalletSummary (earned/expected/deferred/paid/outstanding/tasksEarnedCount/tasksExpectedCount)
     └── api.ts                     # ApiResponse<T>, PaginatedResponse<T>, ApiError
 ```
 
@@ -323,7 +354,7 @@ src/
 
 ---
 
-## Database Schema (14 tables)
+## Database Schema (19 tables)
 
 | Table | Key Fields | Constraints |
 |-------|-----------|-------------|
@@ -338,11 +369,16 @@ src/
 | **task_comments** | id, task_id FK, bitrix_comment_id, author_name, post_message | UNIQUE(task_id, bitrix_comment_id) |
 | **task_checklist_items** | id, task_id FK, bitrix_item_id, title, sort_index, is_complete | - |
 | **task_files** | id, task_id FK, bitrix_file_id, name, size, download_url | - |
-| **notifications** | id, user_id FK, type, title, message, portal_id FK, task_id FK, is_read | - |
+| **task_rates** | id, user_id FK(users), task_id FK(tasks), rate_type ('fixed'\|'hourly'), amount, hours_override?, is_paid, paid_amount (REAL, DEFAULT 0 — Wallet feature for partial payments), paid_at?, note? | UNIQUE(user_id, task_id) |
+| **time_tracking_entries** | id, user_id FK(users), task_id FK(tasks), started_at, stopped_at?, duration? (seconds) | - |
+| **payment_requests** | id, from_user_id FK(users, admin), to_user_id FK(users, recipient), total_amount, note?, status ('pending'\|'accepted'\|'modified'\|'rejected'), responded_at? | - |
+| **payment_request_items** | id, request_id FK(payment_requests CASCADE), task_rate_id FK(task_rates CASCADE), proposed_amount, applied_amount? (filled on accept) | - |
+| **notifications** | id, user_id FK, type (incl. `'payment_request'` for Wallet requests), title, message, portal_id FK, task_id FK, is_read | - |
 | **ai_reports** | id, user_id FK, type (daily/weekly), period_start/end, content, stats (JSON) | - |
 | **ai_chat_messages** | id, user_id FK, role (user/assistant), content | - |
+| **app_settings** | id, key UNIQUE, value | UNIQUE(key) |
 
-All tables use INTEGER PRIMARY KEY AUTOINCREMENT. Foreign keys enforce CASCADE on delete (except notifications which use SET NULL for portal_id/task_id). Timestamps stored as ISO 8601 TEXT with CURRENT_TIMESTAMP default. On DB init, existing portals are auto-migrated to user_portal_access with admin role and can_see_all=1.
+All tables use INTEGER PRIMARY KEY AUTOINCREMENT. Foreign keys enforce CASCADE on delete (except notifications which use SET NULL for portal_id/task_id). Timestamps stored as ISO 8601 TEXT with CURRENT_TIMESTAMP default. On DB init, existing portals are auto-migrated to user_portal_access with admin role and can_see_all=1. Runtime migrations in [`db/index.ts`](./src/lib/db/index.ts) idempotently add `task_rates.paid_amount`, `tasks.responsible_photo/creator_photo/exclude_from_ai`, `task_comments.author_photo/attached_files`, `portals.client_id/client_secret` via guarded `ALTER TABLE`. `payment_requests` and `payment_request_items` are provisioned via `CREATE TABLE IF NOT EXISTS` so pre-existing databases pick them up on next boot.
 
 ---
 
@@ -418,6 +454,21 @@ Reusable components for the payments page. Barrel exported from [`index.ts`](./s
 | [PaymentSummaryCards](./src/components/payments/PaymentSummaryCards.tsx) | 3 StatCards in responsive grid (1 col mobile, 3 cols desktop): Всего заработано (banknote icon), Оплачено (check icon, green trend), Не оплачено (clock icon). Currency formatted via `Intl.NumberFormat('ru-RU', {currency: 'RUB'})`. Loading state shows StatCardSkeleton. Props: `summary: PaymentSummary`, `loading?: boolean` |
 | [PaymentFilters](./src/components/payments/PaymentFilters.tsx) | Horizontal flex-wrap filter panel: portal SelectField, date range (from/to InputField type=date), paid status SelectField, task status SelectField, user SelectField (admin only), ghost "Сбросить" button. Resets page to 1 on filter change. Props: `filters: PaymentFilters`, `onFiltersChange`, `portals: PortalPublic[]`, `isAdmin?: boolean`, `users?` |
 | [PaymentTable](./src/components/payments/PaymentTable.tsx) | Desktop: HTML table with checkbox, task link, portal indicator+name, rate type, rate amount, hours (hourly: hoursOverride ?? timeSpent/3600, fixed: dash), total, task status badge, clickable paid/unpaid badge. Mobile: card layout with same data. Empty state via EmptyState component. Skeleton rows for loading. Props: `rates: TaskRateWithTask[]`, `selectedIds: Set<number>`, `onToggleSelect`, `onSelectAll`, `onTogglePaid`, `loading?` |
+| [PaymentRequestCreateDialog](./src/components/payments/PaymentRequestCreateDialog.tsx) | Admin-only dialog for creating a payment request. Recipient dropdown (useUsers), outstanding rates list loaded from `/api/wallet/rates?userId=X`, per-rate checkbox + proposedAmount input (default = expectedAmount − paidAmount), optional note textarea, live total, submit via `useCreatePaymentRequest`. Props: `open`, `onOpenChange`, `presetUserId?`, `presetRateIds?` |
+
+### Wallet Components ([`components/wallet/`](./src/components/wallet/))
+
+Reusable components for the `/wallet` page and the admin outgoing-requests tab. Barrel exported from [`index.ts`](./src/components/wallet/index.ts).
+
+| Component | Description |
+|-----------|-------------|
+| [WalletSummaryCards](./src/components/wallet/WalletSummaryCards.tsx) | 4 StatCards (Заработано / Ожидается / Оплачено / К получению) in responsive grid; RUB formatting via `Intl.NumberFormat('ru-RU', {currency: 'RUB'})`; inline SVG icons (Wallet / Hourglass / CheckCircle / AlertCircle); success/danger border tint on "Оплачено" / "К получению"; `StatCardSkeleton × 4` loading state. Props: `summary: WalletSummary`, `loading?` |
+| [WalletRatesTable](./src/components/wallet/WalletRatesTable.tsx) | Desktop HTML table + mobile cards for `WalletRate[]`: task link, portal indicator, expectedAmount, paidAmount, progress bar color-coded by `paymentStatus`, status badge (unpaid=danger / partial=warning / paid=success / overpaid=primary), "Изменить" action. Empty + skeleton states. Props: `rates`, `loading?`, `onEdit(rate)` |
+| [CustomPaymentDialog](./src/components/wallet/CustomPaymentDialog.tsx) | Modal editor for manual `paidAmount`. Props: `{ rate: WalletRate \| null, onClose }`. Shows task title + read-only expectedAmount, 3 quick-pick buttons (Полностью / Не оплачено / Своё), free-form numeric input, live progress bar, Save/Cancel footer. Uses `useSetPaidAmount` + `useToast`. Esc/backdrop close, validation (finite ≥ 0). Returns `null` when rate is null |
+| [PaymentRequestInbox](./src/components/wallet/PaymentRequestInbox.tsx) | User-side inbox rendered inside `/wallet?tab=requests`. Uses `useIncomingRequests()`. Splits list into "Ожидают ответа" (pending, createdAt DESC) and "История" (accepted/modified/rejected, respondedAt DESC). Loading (2 card skeletons), error and empty states |
+| [PaymentRequestCard](./src/components/wallet/PaymentRequestCard.tsx) | Single PaymentRequest card. Props: `{ request, hideActions? }`. Shows sender, dates, colored status badge, items (taskTitle + proposedAmount + expectedAmount + appliedAmount), optional note, total. For `status='pending'` (and `hideActions` not set — used by `OutgoingRequestsList` where the caller is the sender) renders 3 actions: "Принять как есть" (`useAcceptPaymentRequest`), "Изменить и принять" (opens `PaymentRequestModifyDialog`), "Отклонить" (window.confirm + `useRejectPaymentRequest`). Uses `useToast` |
+| [PaymentRequestModifyDialog](./src/components/wallet/PaymentRequestModifyDialog.tsx) | Modal for per-item override editing. Props: `{ request, onClose }`. Seeds with `proposedAmount`, shows `expectedAmount` read-only, live total, visual warning when applied > expected. Submit builds `overrides` containing ONLY items whose value differs from proposed, then calls `useAcceptPaymentRequest({ overrides })`. If no diffs, sends plain accept. Esc/backdrop close, validation (finite ≥ 0) |
+| [OutgoingRequestsList](./src/components/wallet/OutgoingRequestsList.tsx) | Admin-only view of outgoing payment requests rendered inside the "Исходящие запросы" tab on `/payments`. Uses `useOutgoingRequests()`. Desktop: HTML table (Получатель / Сумма / Статус / Создан / Ответил). Mobile: card list. Rows sorted by createdAt DESC. Click row → modal with `PaymentRequestCard hideActions=true`. Loading skeletons, error and empty states |
 
 ### Hooks ([`hooks/`](./src/hooks/))
 
@@ -428,6 +479,8 @@ Reusable components for the payments page. Barrel exported from [`index.ts`](./s
 | [useTasks](./src/hooks/useTasks.ts) | `useTasks(filters)` - paginated filtered list; `useCreateTask()`, `useUpdateTask()`, `useDeleteTask()`, `useStartTask()`, `useCompleteTask()`, `useMoveTaskStage()` |
 | [useTask](./src/hooks/useTask.ts) | `useTask(id)` - single task with comments/checklist/files; `useAddComment()`, `useAddChecklistItem()`, `useToggleChecklistItem()` (optimistic), `useDeleteChecklistItem()` |
 | [usePayments](./src/hooks/usePayments.ts) | `useTaskRate(taskId)` - fetch rate for task; `useUpsertTaskRate()` - create/update rate; `useDeleteTaskRate()` - delete rate; `usePayments(filters)` - paginated list with summary; `useUpdatePaymentStatus()` - toggle paid; `useBatchUpdatePaymentStatus()` - batch toggle |
+| [useWallet](./src/hooks/useWallet.ts) | `useWalletSummary()` — `GET /api/wallet/summary`, queryKey `['wallet','summary']`; `useWalletRates(filters?)` — `GET /api/wallet/rates[?group=earned\|expected\|deferred]`, queryKey `['wallet','rates', filters]`; `useSetPaidAmount()` — `PATCH /api/wallet/rates/[id]/paid-amount`, on success invalidates `['wallet']` and `['payments']`. Exports `WalletRatesFilters`, `SetPaidAmountInput` |
+| [usePaymentRequests](./src/hooks/usePaymentRequests.ts) | `useIncomingRequests()` — `GET /api/payment-requests?direction=incoming`, queryKey `['payment-requests','incoming']`; `useOutgoingRequests()` — `GET ?direction=outgoing`, admin-only, queryKey `['payment-requests','outgoing']`; `useCreatePaymentRequest()` — `POST /api/payment-requests`, invalidates `['payment-requests']`, `['wallet']`, `['payments']`; `useAcceptPaymentRequest()` — `POST /api/payment-requests/[id]/accept` with optional `{ overrides }`, invalidates `['payment-requests']`, `['wallet']`, `['payments']`; `useRejectPaymentRequest()` — `POST /api/payment-requests/[id]/reject`, invalidates only `['payment-requests']`. Exports `AcceptPaymentRequestVariables`, `RejectPaymentRequestVariables` |
 | [useNotifications](./src/hooks/useNotifications.ts) | `useNotifications(params)` - paginated notification list; `useUnreadCount()` - unread count with 30s polling; `useMarkAsRead()`, `useMarkAllAsRead()` - mutations |
 | [usePushNotifications](./src/hooks/usePushNotifications.ts) | `usePushNotifications()` - push subscription lifecycle: `isSupported`, `isSubscribed`, `permission`, `subscribe()`, `unsubscribe()` |
 | [useReports](./src/hooks/useReports.ts) | `useDailyReport(date?)`, `useWeeklyReport(week?)` - fetch/generate reports; `useRegenerateDaily()`, `useRegenerateWeekly()` - force-regenerate mutations |
@@ -544,6 +597,54 @@ Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQL
 | `/api/payments/export` | GET | Export payments as PDF via pdfmake. Same filters as /api/payments. Fetches rates, summary, user info, portal name; calls generatePaymentReport; returns PDF buffer with Content-Type: application/pdf and Content-Disposition: attachment filename="payment-report-YYYY-MM-DD.pdf" |
 
 Route files: [`tasks/[id]/rate/route.ts`](./src/app/api/tasks/[id]/rate/route.ts), [`payments/route.ts`](./src/app/api/payments/route.ts), [`payments/[id]/route.ts`](./src/app/api/payments/[id]/route.ts), [`payments/batch/route.ts`](./src/app/api/payments/batch/route.ts), [`payments/export/route.ts`](./src/app/api/payments/export/route.ts)
+
+### Wallet API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/wallet/summary` | GET | Aggregated wallet figures for current user. Calls `getWalletSummary(userId)`. Returns `{ data: WalletSummary }` with earned/expected/deferred/paid/outstanding/tasksEarnedCount/tasksExpectedCount |
+| `/api/wallet/rates` | GET | Returns rates enriched with paidAmount, expectedAmount, paymentStatus. Default: current user's rates. Admins may pass `?userId=N` to fetch another user's rates (used by PaymentRequestCreateDialog); 403 for non-admins, 400 if userId malformed. Optional `?group=earned\|expected\|deferred` filter (400 on invalid). Returns `{ data: WalletRate[] }` |
+| `/api/wallet/rates/[id]/paid-amount` | PATCH | Update paidAmount on a rate owned by caller. Body: `{ paidAmount: number }` (finite, >=0; 400 otherwise). 404 if rate missing, 403 if rate belongs to another user. `setPaidAmount` auto-syncs `isPaid` (paidAmount >= expectedAmount) and paidAt. Returns `{ data: TaskRate }` |
+
+Wallet routes always operate on the authenticated user's own data — no admin override. Monetary math uses the shared `computeExpectedAmount` helper from [`lib/payments/calc.ts`](./src/lib/payments/calc.ts). Rate row shape is reused from [`lib/payments/rates.ts`](./src/lib/payments/rates.ts) via exported `rateWithTaskSelect` + `mapRowToTaskRateWithTask`.
+
+Route files: [`wallet/summary/route.ts`](./src/app/api/wallet/summary/route.ts), [`wallet/rates/route.ts`](./src/app/api/wallet/rates/route.ts), [`wallet/rates/[id]/paid-amount/route.ts`](./src/app/api/wallet/rates/[id]/paid-amount/route.ts)
+
+### Payment Requests API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/payment-requests` | POST | Admin creates a payment request for a user. Body: `{toUserId, items: [{taskRateId, proposedAmount}], note?}`. 403 if not admin. 400 on validation failure (empty items, non-positive amount, taskRateId not owned by toUserId, self-request). Returns 201 + full PaymentRequest |
+| `/api/payment-requests` | GET | List payment requests. Query `?direction=incoming\|outgoing` (required). `incoming`: where toUserId=current user. `outgoing`: where fromUserId=current user, admin-only (403 otherwise). Returns `{ data: PaymentRequest[] }` ordered by createdAt desc |
+| `/api/payment-requests/[id]` | GET | Full request detail. Sender (from) or recipient (to) only; 404 if missing, 403 otherwise. Returns `{ data: PaymentRequest }` with items (taskTitle + expectedAmount joined) |
+| `/api/payment-requests/[id]/accept` | POST | Recipient accepts pending request. Body optional: `{ overrides?: Record<itemIdStr, number> }`. Applies amounts cumulatively to `taskRates.paidAmount` (does not overwrite), recomputes `isPaid = paidAmount >= expectedAmount`, persists `paymentRequestItems.appliedAmount`, status becomes `'modified'` if overrides present else `'accepted'`, `respondedAt=now`. 409 if not pending, 403 if not recipient, 400 on unknown override keys/invalid amounts |
+| `/api/payment-requests/[id]/reject` | POST | Recipient rejects pending request. No body. Status=`'rejected'`, respondedAt=now. 409 if not pending, 403 if not recipient |
+
+On creation, a row is inserted into `notifications` (type=`'payment_request'`, title=`'Новый запрос оплаты'`, message=note, portalId/taskId null) for the recipient. Expected-amount math reuses `computeExpectedAmount` from [`lib/payments/calc.ts`](./src/lib/payments/calc.ts). `PaymentRequestError` codes map to HTTP: VALIDATION→400, FORBIDDEN→403, NOT_FOUND→404, CONFLICT→409 via shared `mapPaymentRequestError` helper exported from [`payment-requests/route.ts`](./src/app/api/payment-requests/route.ts).
+
+Route files: [`payment-requests/route.ts`](./src/app/api/payment-requests/route.ts), [`payment-requests/[id]/route.ts`](./src/app/api/payment-requests/[id]/route.ts), [`payment-requests/[id]/accept/route.ts`](./src/app/api/payment-requests/[id]/accept/route.ts), [`payment-requests/[id]/reject/route.ts`](./src/app/api/payment-requests/[id]/reject/route.ts)
+
+### Wallet Feature Overview
+
+The Wallet feature gives each user a personal payment inbox plus admin-driven payment-request workflow. It reuses existing payment primitives rather than duplicating them.
+
+**Service layer** ([`src/lib/wallet/`](./src/lib/wallet/)):
+- [wallet.ts](./src/lib/wallet/wallet.ts) — `getWalletSummary(userId)`, `getWalletRates(userId, { group? })`, `setPaidAmount(userId, rateId, paidAmount)`. Rate shape shared with payments layer via `rateWithTaskSelect` / `mapRowToTaskRateWithTask` from [rates.ts](./src/lib/payments/rates.ts). Expected amounts computed via [computeExpectedAmount](./src/lib/payments/calc.ts). Status buckets: `COMPLETED`/`SUPPOSEDLY_COMPLETED` → earned; `NEW`/`PENDING`/`IN_PROGRESS` → expected; `DEFERRED` → deferred. `derivePaymentStatus` (epsilon-tolerant) yields `unpaid | partial | paid | overpaid`
+- [payment-requests.ts](./src/lib/wallet/payment-requests.ts) — `PaymentRequestError` (codes NOT_FOUND / FORBIDDEN / CONFLICT / VALIDATION), `createPaymentRequest`, `listIncomingRequests`, `listOutgoingRequests`, `getPaymentRequestDetail`, `acceptPaymentRequest`, `rejectPaymentRequest`. Accept is cumulative (adds to `task_rates.paid_amount`, never overwrites); status becomes `'modified'` when overrides are provided, else `'accepted'`. Notification row (`type='payment_request'`) inserted in the same transaction as create
+
+**Types** ([`src/types/`](./src/types/)):
+- [wallet.ts](./src/types/wallet.ts) — `WalletPaymentStatus`, `WalletRate` (extends `TaskRateWithTask` + `paidAmount` / `expectedAmount` / `paymentStatus`), `WalletSummary`
+- [payment-request.ts](./src/types/payment-request.ts) — `PaymentRequestStatus`, `PaymentRequestItem`, `PaymentRequest`, `CreatePaymentRequestInput`, `AcceptPaymentRequestInput`
+
+**API routes:** see the "Wallet API" and "Payment Requests API" sections above.
+
+**Hooks:** [useWallet.ts](./src/hooks/useWallet.ts), [usePaymentRequests.ts](./src/hooks/usePaymentRequests.ts).
+
+**Pages and UI:**
+- [`/wallet` page](./src/app/(dashboard)/wallet/page.tsx) — header + `WalletSummaryCards` + 4 tabs (Заработано / Ожидается / Отложено / Запросы) synced via `?tab=` query. Group tabs render `WalletRatesTable` fed by `useWalletRates({ group })`; "Изменить" opens `CustomPaymentDialog`. The `requests` tab renders `PaymentRequestInbox`
+- `Wallet Components` section below — 7 components under [`src/components/wallet/`](./src/components/wallet/)
+- [PaymentRequestCreateDialog](./src/components/payments/PaymentRequestCreateDialog.tsx) — admin entry point on `/payments` (header button "Отправить запрос оплаты") and the "Исходящие запросы" tab (renders `OutgoingRequestsList`)
+- [Sidebar](./src/components/layout/Sidebar.tsx) exposes a "Кошелёк" nav item with `WalletIcon`
 
 ### Time Tracking API
 

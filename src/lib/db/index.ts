@@ -237,6 +237,7 @@ function initializeTables() {
       amount REAL NOT NULL DEFAULT 0,
       hours_override REAL,
       is_paid INTEGER NOT NULL DEFAULT 0,
+      paid_amount REAL NOT NULL DEFAULT 0,
       paid_at TEXT,
       note TEXT,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
@@ -252,6 +253,25 @@ function initializeTables() {
       stopped_at TEXT,
       duration INTEGER,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      to_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      total_amount REAL NOT NULL,
+      note TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      responded_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_request_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id INTEGER NOT NULL REFERENCES payment_requests(id) ON DELETE CASCADE,
+      task_rate_id INTEGER NOT NULL REFERENCES task_rates(id) ON DELETE CASCADE,
+      proposed_amount REAL NOT NULL,
+      applied_amount REAL
     );
 
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -317,6 +337,13 @@ try {
   sqlite.exec(`ALTER TABLE task_comments ADD COLUMN attached_files TEXT`);
 } catch {
   // Column already exists
+}
+
+// Migration: add paid_amount column to task_rates if missing (partial-payment support for wallet)
+try {
+  sqlite.exec(`ALTER TABLE task_rates ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0`);
+} catch {
+  // Column already exists — ignore
 }
 
 // Seed admin user (async, runs in background on first load)

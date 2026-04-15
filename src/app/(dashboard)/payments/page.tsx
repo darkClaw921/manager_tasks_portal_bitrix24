@@ -6,11 +6,13 @@ import {
   PaymentSummaryCards,
   PaymentFilters,
   PaymentTable,
+  PaymentRequestCreateDialog,
 } from '@/components/payments';
+import { OutgoingRequestsList } from '@/components/wallet';
 import { usePayments, useUpdatePaymentStatus, useBatchUpdatePaymentStatus } from '@/hooks/usePayments';
 import { usePortals } from '@/hooks/usePortals';
 import { useUsers } from '@/hooks/useUsers';
-import type { PaymentFilters as PaymentFiltersType } from '@/types';
+import type { PaymentFilters as PaymentFiltersType, PortalPublic, TaskRateWithTask } from '@/types';
 
 function PaymentIcon() {
   return (
@@ -39,6 +41,8 @@ export default function PaymentsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [createRequestOpen, setCreateRequestOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'payments' | 'outgoing'>('payments');
   const exportRef = useRef<HTMLDivElement>(null);
 
   // Check admin status
@@ -182,35 +186,163 @@ export default function PaymentsPage() {
             </p>
           </div>
         </div>
-        <div className="relative" ref={exportRef}>
-          <Button variant="secondary" size="sm" onClick={() => setExportMenuOpen(!exportMenuOpen)} disabled={exporting}>
-            <ExportIcon />
-            <span className="ml-1.5">{exporting ? 'Экспорт...' : 'Экспорт PDF'}</span>
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5 ml-1">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
-          </Button>
-          {exportMenuOpen && (
-            <div className="absolute right-0 top-full mt-1 w-56 bg-card border border-border rounded-card shadow-lg z-50 overflow-hidden">
-              <button
-                className="w-full text-left px-4 py-3 hover:bg-hover transition-colors border-b border-border"
-                onClick={() => handleExportPdf('official')}
-              >
-                <div className="text-small font-medium text-foreground">Официальный</div>
-                <div className="text-xs text-text-secondary mt-0.5">Классический формальный стиль</div>
-              </button>
-              <button
-                className="w-full text-left px-4 py-3 hover:bg-hover transition-colors"
-                onClick={() => handleExportPdf('modern')}
-              >
-                <div className="text-small font-medium text-foreground">Современный</div>
-                <div className="text-xs text-text-secondary mt-0.5">Цветной дизайн с карточками</div>
-              </button>
-            </div>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setCreateRequestOpen(true)}
+            >
+              Отправить запрос оплаты
+            </Button>
           )}
+          <div className="relative" ref={exportRef}>
+            <Button variant="secondary" size="sm" onClick={() => setExportMenuOpen(!exportMenuOpen)} disabled={exporting}>
+              <ExportIcon />
+              <span className="ml-1.5">{exporting ? 'Экспорт...' : 'Экспорт PDF'}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5 ml-1">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </svg>
+            </Button>
+            {exportMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 w-56 bg-card border border-border rounded-card shadow-lg z-50 overflow-hidden">
+                <button
+                  className="w-full text-left px-4 py-3 hover:bg-hover transition-colors border-b border-border"
+                  onClick={() => handleExportPdf('official')}
+                >
+                  <div className="text-small font-medium text-foreground">Официальный</div>
+                  <div className="text-xs text-text-secondary mt-0.5">Классический формальный стиль</div>
+                </button>
+                <button
+                  className="w-full text-left px-4 py-3 hover:bg-hover transition-colors"
+                  onClick={() => handleExportPdf('modern')}
+                >
+                  <div className="text-small font-medium text-foreground">Современный</div>
+                  <div className="text-xs text-text-secondary mt-0.5">Цветной дизайн с карточками</div>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* Admin tabs: Все платежи | Исходящие запросы. Non-admin users don't see
+          the outgoing tab at all — payments content renders directly. */}
+      {isAdmin && (
+        <div className="border-b border-border">
+          <nav className="flex gap-1 -mb-px" aria-label="Payments view">
+            <button
+              type="button"
+              onClick={() => setActiveTab('payments')}
+              className={
+                activeTab === 'payments'
+                  ? 'px-4 py-2.5 text-small font-medium text-primary border-b-2 border-primary'
+                  : 'px-4 py-2.5 text-small font-medium text-text-secondary hover:text-foreground border-b-2 border-transparent transition-colors'
+              }
+            >
+              Все платежи
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('outgoing')}
+              className={
+                activeTab === 'outgoing'
+                  ? 'px-4 py-2.5 text-small font-medium text-primary border-b-2 border-primary'
+                  : 'px-4 py-2.5 text-small font-medium text-text-secondary hover:text-foreground border-b-2 border-transparent transition-colors'
+              }
+            >
+              Исходящие запросы
+            </button>
+          </nav>
+        </div>
+      )}
+
+      {/* Tab content: outgoing requests (admin-only) */}
+      {isAdmin && activeTab === 'outgoing' ? (
+        <OutgoingRequestsList />
+      ) : (
+        <PaymentsTabContent
+          summary={summary}
+          isLoading={isLoading}
+          filters={filters}
+          setFilters={setFilters}
+          portals={portals ?? []}
+          isAdmin={isAdmin}
+          users={users}
+          selectedIds={selectedIds}
+          handleBatchPaid={handleBatchPaid}
+          batchUpdatePending={batchUpdate.isPending}
+          rates={rates}
+          handleToggleSelect={handleToggleSelect}
+          handleSelectAll={handleSelectAll}
+          handleTogglePaid={handleTogglePaid}
+          totalPages={totalPages}
+          currentPage={currentPage}
+          handlePrevPage={handlePrevPage}
+          handleNextPage={handleNextPage}
+        />
+      )}
+
+      {/* Create payment request dialog (admin-only) */}
+      {isAdmin && (
+        <PaymentRequestCreateDialog
+          open={createRequestOpen}
+          onOpenChange={setCreateRequestOpen}
+          presetUserId={filters.userId}
+          presetRateIds={selectedIds.size > 0 ? Array.from(selectedIds) : undefined}
+        />
+      )}
+    </div>
+  );
+}
+
+// ==================== Payments tab content ====================
+
+interface PaymentsTabContentProps {
+  summary: { totalEarned: number; totalPaid: number; totalUnpaid: number; taskCount: number };
+  isLoading: boolean;
+  filters: PaymentFiltersType;
+  setFilters: (f: PaymentFiltersType | ((prev: PaymentFiltersType) => PaymentFiltersType)) => void;
+  portals: PortalPublic[];
+  isAdmin: boolean;
+  users: Array<{ id: number; firstName: string; lastName: string }> | undefined;
+  selectedIds: Set<number>;
+  handleBatchPaid: (isPaid: boolean) => void;
+  batchUpdatePending: boolean;
+  rates: TaskRateWithTask[];
+  handleToggleSelect: (id: number) => void;
+  handleSelectAll: () => void;
+  handleTogglePaid: (id: number, isPaid: boolean) => void;
+  totalPages: number;
+  currentPage: number;
+  handlePrevPage: () => void;
+  handleNextPage: () => void;
+}
+
+function PaymentsTabContent(props: PaymentsTabContentProps) {
+  const {
+    summary,
+    isLoading,
+    filters,
+    setFilters,
+    portals,
+    isAdmin,
+    users,
+    selectedIds,
+    handleBatchPaid,
+    batchUpdatePending,
+    rates,
+    handleToggleSelect,
+    handleSelectAll,
+    handleTogglePaid,
+    totalPages,
+    currentPage,
+    handlePrevPage,
+    handleNextPage,
+  } = props;
+
+  return (
+    <div className="space-y-6">
       {/* Summary cards */}
       <PaymentSummaryCards summary={summary} loading={isLoading} />
 
@@ -233,7 +365,7 @@ export default function PaymentsPage() {
             variant="primary"
             size="sm"
             onClick={() => handleBatchPaid(true)}
-            disabled={batchUpdate.isPending}
+            disabled={batchUpdatePending}
           >
             Отметить оплаченными
           </Button>
@@ -241,7 +373,7 @@ export default function PaymentsPage() {
             variant="ghost"
             size="sm"
             onClick={() => handleBatchPaid(false)}
-            disabled={batchUpdate.isPending}
+            disabled={batchUpdatePending}
           >
             Отметить неоплаченными
           </Button>

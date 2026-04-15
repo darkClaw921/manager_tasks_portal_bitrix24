@@ -202,6 +202,7 @@ export const taskRates = sqliteTable('task_rates', {
   amount: real('amount').notNull().default(0),
   hoursOverride: real('hours_override'), // null = использовать timeSpent из задачи
   isPaid: integer('is_paid', { mode: 'boolean' }).notNull().default(false),
+  paidAmount: real('paid_amount').notNull().default(0), // фактически оплачено (partial payments)
   paidAt: text('paid_at'),
   note: text('note'),
   createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
@@ -209,6 +210,27 @@ export const taskRates = sqliteTable('task_rates', {
 }, (table) => [
   uniqueIndex('task_rates_user_task_unique').on(table.userId, table.taskId),
 ]);
+
+// ==================== PAYMENT REQUESTS ====================
+export const paymentRequests = sqliteTable('payment_requests', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  fromUserId: integer('from_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }), // админ-отправитель
+  toUserId: integer('to_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),     // получатель
+  totalAmount: real('total_amount').notNull(),
+  note: text('note'),
+  status: text('status').notNull().default('pending'), // 'pending' | 'accepted' | 'modified' | 'rejected'
+  respondedAt: text('responded_at'),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+// ==================== PAYMENT REQUEST ITEMS ====================
+export const paymentRequestItems = sqliteTable('payment_request_items', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  requestId: integer('request_id').notNull().references(() => paymentRequests.id, { onDelete: 'cascade' }),
+  taskRateId: integer('task_rate_id').notNull().references(() => taskRates.id, { onDelete: 'cascade' }),
+  proposedAmount: real('proposed_amount').notNull(), // сумма, предложенная админом
+  appliedAmount: real('applied_amount'),             // итоговая сумма после accept/modify
+});
 
 // ==================== TIME TRACKING ENTRIES ====================
 export const timeTrackingEntries = sqliteTable('time_tracking_entries', {
@@ -314,3 +336,9 @@ export type NewTaskRate = typeof taskRates.$inferInsert;
 
 export type TimeTrackingEntry = typeof timeTrackingEntries.$inferSelect;
 export type NewTimeTrackingEntry = typeof timeTrackingEntries.$inferInsert;
+
+export type PaymentRequest = typeof paymentRequests.$inferSelect;
+export type NewPaymentRequest = typeof paymentRequests.$inferInsert;
+
+export type PaymentRequestItem = typeof paymentRequestItems.$inferSelect;
+export type NewPaymentRequestItem = typeof paymentRequestItems.$inferInsert;
