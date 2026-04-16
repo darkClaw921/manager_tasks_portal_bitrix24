@@ -150,6 +150,64 @@ export async function runFfmpeg(
   });
 }
 
+// ==================== Faststart helper ====================
+
+/**
+ * Remux an MP4 in place so that the `moov` atom is rewritten to the head of
+ * the file (faststart). LiveKit egress writes `moov` at the end, which
+ * prevents Safari / iOS WebKit from starting playback over HTTP Range — the
+ * browser keeps waiting for metadata that only arrives once the full file is
+ * downloaded. `ffmpeg -c copy -movflags +faststart` rewrites the container
+ * without re-encoding (~seconds even for long meetings).
+ *
+ * Strategy:
+ *   1. Write the remuxed copy to a sibling `*.faststart.tmp` file.
+ *   2. On success, rename it over the original (atomic within the same fs).
+ *   3. On failure, delete the temp file and leave the original untouched.
+ */
+export async function remuxFaststartInPlace(
+  filePath: string,
+  opts: { ffmpegPath?: string } = {},
+): Promise<void> {
+  const dir = path.dirname(filePath);
+  const ext = path.extname(filePath);
+  const stem = path.basename(filePath, ext);
+  // Preserve the original extension so ffmpeg can pick the muxer by
+  // filename (e.g. `.mp4` → MOV/MP4 muxer). Using `.tmp` would force ffmpeg
+  // to error out with "Unable to choose an output format".
+  const tmpPath = path.join(dir, `${stem}.faststart${ext}`);
+
+  const args = [
+    '-y',
+    '-i',
+    filePath,
+    '-c',
+    'copy',
+    '-movflags',
+    '+faststart',
+    tmpPath,
+  ];
+
+  let result: RunFfmpegResult;
+  try {
+    result = await runFfmpeg(args, opts);
+  } catch (err) {
+    fs.rmSync(tmpPath, { force: true });
+    throw new Error(
+      `ffmpeg faststart spawn failed for ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (result.exitCode !== 0) {
+    fs.rmSync(tmpPath, { force: true });
+    throw new Error(
+      `ffmpeg faststart exited ${result.exitCode} for ${filePath}: ${result.stderr.slice(-400)}`,
+    );
+  }
+
+  fs.renameSync(tmpPath, filePath);
+}
+
 // ==================== Orchestrator ====================
 
 /**

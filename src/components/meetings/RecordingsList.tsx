@@ -70,10 +70,16 @@ function PlayerPrimary({
   const [activeTrackIdx, setActiveTrackIdx] = useState<number | null>(null);
   const [audioTracksApiAvailable, setAudioTracksApiAvailable] = useState(false);
 
-  // Choose the primary playback file: prefer final MKV, fall back to mixed MP4.
-  const primary = manifest.finalMkv ?? manifest.roomComposite;
+  // Choose the primary playback file: prefer the mixed MP4 (H.264/AAC,
+  // faststart remux) so the <video> element works natively in Safari / iOS /
+  // Chrome / Firefox. The final MKV is reserved for the "Скачать" button
+  // because no major browser plays Matroska natively.
+  const primary = manifest.roomComposite ?? manifest.finalMkv;
   const primarySrc = primary
     ? buildStreamUrl(meetingId, primary.recordingId)
+    : null;
+  const mkvDownloadSrc = manifest.finalMkv
+    ? buildStreamUrl(meetingId, manifest.finalMkv.recordingId)
     : null;
 
   // Detect audioTracks API after metadata loads.
@@ -133,16 +139,28 @@ function PlayerPrimary({
         />
       ) : null}
 
-      {manifest.finalMkv && (
-        <a
-          href={primarySrc}
-          download
-          className="inline-flex items-center gap-2 self-start text-body text-primary hover:underline"
-        >
-          <DownloadIcon className="h-4 w-4" />
-          Скачать MKV
-        </a>
-      )}
+      <div className="flex flex-wrap gap-4">
+        {primarySrc && (
+          <a
+            href={primarySrc}
+            download
+            className="inline-flex items-center gap-2 text-body text-primary hover:underline"
+          >
+            <DownloadIcon className="h-4 w-4" />
+            Скачать MP4
+          </a>
+        )}
+        {mkvDownloadSrc && (
+          <a
+            href={mkvDownloadSrc}
+            download
+            className="inline-flex items-center gap-2 text-body text-primary hover:underline"
+          >
+            <DownloadIcon className="h-4 w-4" />
+            Скачать MKV (мультидорожка)
+          </a>
+        )}
+      </div>
     </div>
   );
 }

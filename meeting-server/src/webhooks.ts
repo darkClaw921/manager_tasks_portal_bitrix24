@@ -37,7 +37,8 @@ import {
   updateRecordingStatus,
 } from './db.js';
 import { startTrackEgress, stopAllForMeeting } from './egress.js';
-import { runForMeeting } from './muxer.js';
+import { remuxFaststartInPlace, runForMeeting } from './muxer.js';
+import fs from 'node:fs';
 
 // ==================== receiver singleton ====================
 
@@ -206,6 +207,32 @@ async function handleEgressEnded(
   );
 
   if (finalStatus !== 'done') return;
+
+  // Remux mixed (RoomComposite) MP4 in place so the `moov` atom lives at the
+  // head of the file. LiveKit writes it at the tail, which breaks progressive
+  // playback in Safari / iOS WebKit. `-c copy` makes this a fast container
+  // rewrite, no re-encoding. After success we refresh the DB size.
+  if (row.track_type === 'mixed' && row.file_path) {
+    try {
+      await remuxFaststartInPlace(row.file_path);
+      let newSize: number | null = sizeBytes;
+      try {
+        newSize = fs.statSync(row.file_path).size;
+      } catch {
+        /* leave prior size */
+      }
+      updateRecordingStatus(egress.egressId, 'done', newSize, endedAt);
+      ctx.log.info(
+        { egressId: egress.egressId, path: row.file_path, newSize },
+        'mixed MP4 remuxed with +faststart',
+      );
+    } catch (err) {
+      ctx.log.error(
+        { err, egressId: egress.egressId, path: row.file_path },
+        'faststart remux failed — Safari playback may break, Chrome/Firefox still works',
+      );
+    }
+  }
 
   // After every audio + mixed egress for the meeting has settled to `done`,
   // kick the muxer. A pending per-track egress (for another speaker) will

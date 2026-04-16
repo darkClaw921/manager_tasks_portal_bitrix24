@@ -62,3 +62,4 @@ TODO.md
 node_modules
 livekit.yaml
 livekit.dev.yaml
+egress.yaml

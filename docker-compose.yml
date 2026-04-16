@@ -4,6 +4,8 @@
 # Services:
 #   taskhub         Next.js + cron
 #   livekit         LiveKit SFU (signaling + WebRTC)
+#   livekit-egress  LiveKit egress worker (room composite / track recording)
+#   redis           psrpc bus shared by livekit + livekit-egress
 #   meeting-worker  Fastify: LiveKit webhooks + egress + ffmpeg muxer
 #
 # Shared named volume `taskhub-data` holds:
@@ -45,6 +47,12 @@ services:
       retries: 3
       start_period: 15s
 
+  redis:
+    image: redis:7-alpine
+    container_name: taskhub-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
   livekit:
     image: livekit/livekit-server:latest
     container_name: taskhub-livekit
@@ -56,9 +64,29 @@ services:
       - "7880:7880"                    # WebSocket / HTTP signaling
       - "7881:7881"                    # TCP fallback
       - "50000-50100:50000-50100/udp"  # WebRTC media
+    depends_on:
+      redis:
+        condition: service_started
     # NOTE: LiveKit reads keys + webhook.api_key from infra/livekit.yaml only.
     # Keep that file in sync with LIVEKIT_API_KEY / LIVEKIT_API_SECRET from .env.
     # (scripts/deploy-dev.sh prints the warning to do this on generation.)
+
+  livekit-egress:
+    image: livekit/egress:latest
+    container_name: taskhub-livekit-egress
+    restart: unless-stopped
+    cap_add:
+      - SYS_ADMIN                      # required by the headless Chrome sandbox
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./infra/egress.yaml:/etc/egress.yaml:ro
+      - taskhub-data:/app/data
+    depends_on:
+      redis:
+        condition: service_started
+      livekit:
+        condition: service_started
 
   meeting-worker:
     build:
