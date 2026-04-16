@@ -9,3 +9,4 @@ export type * from './payment';
 export type * from './payment-request';
 export type * from './time-tracking';
 export type * from './wallet';
+export type * from './meeting';

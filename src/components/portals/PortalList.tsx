@@ -115,6 +115,7 @@ export function PortalList({
           const isEditing = editing?.id === portal.id;
           const isDisconnecting = disconnecting === portal.id;
           const isSyncing = syncing === portal.id;
+          const isLocal = portal.domain === 'local' || portal.memberId === '__local__';
 
           return (
             <div
@@ -170,9 +171,12 @@ export function PortalList({
                       <Badge variant={portal.isActive ? 'success' : 'default'} size="sm">
                         {portal.isActive ? 'Активен' : 'Отключён'}
                       </Badge>
+                      {isLocal && (
+                        <Badge variant="primary" size="sm">Локальная</Badge>
+                      )}
                     </div>
                     <p className="text-small text-text-secondary truncate">{portal.domain}</p>
-                    {showSync && portal.lastSyncAt && (
+                    {showSync && !isLocal && portal.lastSyncAt && (
                       <p className="text-xs text-text-muted mt-0.5">
                         Последняя синхронизация: {new Date(portal.lastSyncAt).toLocaleString('ru-RU')}
                       </p>
@@ -197,7 +201,7 @@ export function PortalList({
                       </svg>
                     </a>
                   )}
-                  {showSync && onSync && (
+                  {showSync && onSync && !isLocal && (
                     <button
                       onClick={() => handleSync(portal.id)}
                       disabled={isSyncing}
@@ -228,8 +232,8 @@ export function PortalList({
                       </svg>
                     </button>
                   )}
-                  {/* Disconnect button (admin only) */}
-                  {isAdmin && onDisconnect && (
+                  {/* Disconnect button (admin only, not for local portal) */}
+                  {isAdmin && onDisconnect && !isLocal && (
                     <button
                       onClick={() => handleDisconnect(portal.id)}
                       disabled={isDisconnecting}

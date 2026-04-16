@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { tasks, portals } from '@/lib/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { createBitrix24Client } from '@/lib/bitrix/client';
+import { isLocalPortal } from '@/lib/portals/local';
+import { hasPortalAccess } from '@/lib/portals/access';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -27,24 +29,47 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Get task with ownership check
-    const task = db
+    // Get task + portal info (no ownership filter) for local detection
+    const taskAccess = db
       .select({
         id: tasks.id,
         portalId: tasks.portalId,
         bitrixTaskId: tasks.bitrixTaskId,
         portalUserId: portals.userId,
+        portalMemberId: portals.memberId,
       })
       .from(tasks)
       .innerJoin(portals, eq(tasks.portalId, portals.id))
-      .where(
-        and(
-          eq(tasks.id, taskId),
-          eq(portals.userId, auth.user.userId)
-        )
-      )
+      .where(eq(tasks.id, taskId))
       .get();
 
+    if (!taskAccess) {
+      return NextResponse.json(
+        { error: 'Not Found', message: 'Task not found' },
+        { status: 404 }
+      );
+    }
+
+    // ===== LOCAL PORTAL BRANCH =====
+    if (isLocalPortal({ memberId: taskAccess.portalMemberId })) {
+      if (!auth.user.isAdmin && !hasPortalAccess(auth.user.userId, taskAccess.portalId)) {
+        return NextResponse.json(
+          { error: 'Not Found', message: 'Task not found' },
+          { status: 404 }
+        );
+      }
+      const nowL = new Date().toISOString();
+      db.update(tasks)
+        .set({ status: 'COMPLETED', closedDate: nowL, changedDate: nowL, updatedAt: nowL })
+        .where(eq(tasks.id, taskId))
+        .run();
+      return NextResponse.json({
+        data: { message: 'Task completed', status: 'COMPLETED' },
+      });
+    }
+    // ===== END LOCAL PORTAL BRANCH =====
+
+    const task = taskAccess.portalUserId === auth.user.userId ? taskAccess : null;
     if (!task) {
       return NextResponse.json(
         { error: 'Not Found', message: 'Task not found' },

@@ -13,6 +13,7 @@ const PROTECTED_PREFIXES = [
   '/settings',
   '/reports',
   '/admin',
+  '/meetings',
 ];
 
 /**

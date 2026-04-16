@@ -4,6 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:next": "next dev",
+    "dev:worker": "npm --prefix meeting-server run dev",
+    "dev:livekit": "docker run --rm --name taskhub-livekit-dev -p 7880:7880 -p 7881:7881 -p 50000-50100:50000-50100/udp -v $(pwd)/infra/livekit.dev.yaml:/etc/livekit.yaml livekit/livekit-server:latest --config /etc/livekit.yaml",
+    "dev:sync-keys": "node scripts/sync-livekit-keys.mjs",
+    "dev:all": "npm run dev:sync-keys && concurrently -k -n next,worker,livekit -c blue,green,magenta \"npm:dev:next\" \"npm:dev:worker\" \"npm:dev:livekit\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -12,7 +17,8 @@
     "db:studio": "drizzle-kit studio",
     "db:generate": "drizzle-kit generate",
     "vapid:generate": "node scripts/generate-vapid-keys.js",
-    "db:encrypt": "npx tsx scripts/encrypt-existing-tokens.ts"
+    "db:encrypt": "npx tsx scripts/encrypt-existing-tokens.ts",
+    "test": "tsx --test src/lib/meetings/__tests__/*.test.mts"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",
@@ -22,6 +28,9 @@
     "drizzle-orm": "^0.45.1",
     "isomorphic-dompurify": "^3.3.0",
     "jose": "^6.2.1",
+    "livekit-client": "^2.18.2",
+    "livekit-server-sdk": "^2.15.1",
+    "msgpackr": "^1.11.9",
     "next": "^15.5.12",
     "node-cron": "^4.2.1",
     "openai": "^6.29.0",
@@ -44,10 +53,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",
+    "concurrently": "^9.2.1",
     "drizzle-kit": "^0.31.9",
     "eslint": "^9",
     "eslint-config-next": "^15.5.12",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

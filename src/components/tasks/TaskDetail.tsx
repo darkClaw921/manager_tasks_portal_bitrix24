@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { useTask, type TaskDetail as TaskDetailType } from '@/hooks/useTask';
 import { useUpdateTask, useStartTask, useCompleteTask, useDeleteTask, useRenewTask } from '@/hooks/useTasks';
 import { useBitrixMappings } from '@/hooks/usePortalSettings';
+import { useUsers } from '@/hooks/useUsers';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/Badge';
@@ -122,11 +123,18 @@ function CloseIcon({ className }: { className?: string }) {
   );
 }
 
+/** Generic option shape used by the reusable user picker */
+interface PickerOption {
+  id: string;
+  name: string;
+}
+
 /** Reusable user picker for accomplices/auditors */
 function UserPicker({
   label,
   selectedIds,
-  mappings,
+  options,
+  emptyHint,
   showPicker,
   onTogglePicker,
   onAdd,
@@ -134,7 +142,9 @@ function UserPicker({
 }: {
   label: string;
   selectedIds: string[];
-  mappings: Array<{ bitrixUserId: string; bitrixName?: string | null; firstName: string; lastName: string }>;
+  options: PickerOption[];
+  /** Text shown inside the picker dropdown when options list is empty */
+  emptyHint: string;
   showPicker: boolean;
   onTogglePicker: () => void;
   onAdd: (id: string) => void;
@@ -154,10 +164,8 @@ function UserPicker({
   }, [showPicker, onTogglePicker]);
 
   function getUserName(id: string): string {
-    const mapping = mappings.find(m => m.bitrixUserId === id);
-    if (mapping) {
-      return mapping.bitrixName || `${mapping.firstName} ${mapping.lastName}`.trim() || id;
-    }
+    const opt = options.find((o) => o.id === id);
+    if (opt) return opt.name;
     return `ID: ${id}`;
   }
 
@@ -197,23 +205,22 @@ function UserPicker({
       </div>
       {showPicker && (
         <div ref={pickerRef} className="mt-2 rounded-card border border-border bg-surface shadow-lg max-h-48 overflow-y-auto">
-          {mappings.length === 0 ? (
-            <p className="p-3 text-small text-text-muted text-center">Нет замапленных пользователей</p>
+          {options.length === 0 ? (
+            <p className="p-3 text-small text-text-muted text-center">{emptyHint}</p>
           ) : (
-            mappings.map((m) => {
-              const isSelected = selectedIds.includes(m.bitrixUserId);
-              const name = m.bitrixName || `${m.firstName} ${m.lastName}`.trim() || m.bitrixUserId;
+            options.map((o) => {
+              const isSelected = selectedIds.includes(o.id);
               return (
                 <button
-                  key={m.bitrixUserId}
+                  key={o.id}
                   type="button"
-                  onClick={() => isSelected ? onRemove(m.bitrixUserId) : onAdd(m.bitrixUserId)}
+                  onClick={() => isSelected ? onRemove(o.id) : onAdd(o.id)}
                   className={cn(
                     'w-full text-left px-3 py-2 text-small transition-colors hover:bg-border/50',
                     isSelected && 'bg-primary/10 text-primary font-medium'
                   )}
                 >
-                  <span>{name}</span>
+                  <span>{o.name}</span>
                   {isSelected && <span className="ml-1 text-xs">(выбран)</span>}
                 </button>
               );
@@ -252,6 +259,82 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
   // Bitrix mappings for user name resolution
   const { data: mappingsData } = useBitrixMappings(task?.portalId ?? null);
 
+  // App users (used when task belongs to the local portal)
+  const { data: appUsersData } = useUsers();
+
+  // isLocal is driven by portalDomain joined into the task payload by the API
+  const isLocal = task?.portalDomain === 'local';
+
+  // Current viewer's admin flag — used to expose the "rates for other
+  // participants" section in the sidebar. Fetched once on mount.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled) setIsAdmin(!!d?.user?.isAdmin);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Resolve all participants of the task to app-user ids so admin can set
+  // their rates. For local portal the *Id fields already are app user ids
+  // (stringified); for bitrix portal we reverse-lookup via user_bitrix_mappings.
+  const participantAppUsers = useMemo<Array<{ id: number; name: string }>>(() => {
+    if (!task) return [];
+    const bitrixIds = new Set<string>();
+    if (task.responsibleId) bitrixIds.add(String(task.responsibleId));
+    if (task.creatorId) bitrixIds.add(String(task.creatorId));
+    for (const a of task.accomplices ?? []) bitrixIds.add(String(a));
+    for (const a of task.auditors ?? []) bitrixIds.add(String(a));
+
+    const out = new Map<number, string>();
+    if (isLocal) {
+      for (const id of bitrixIds) {
+        const appId = parseInt(id, 10);
+        if (!Number.isFinite(appId) || appId <= 0) continue;
+        const u = (appUsersData || []).find((x) => x.id === appId);
+        const name = u
+          ? `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email
+          : `user#${appId}`;
+        out.set(appId, name);
+      }
+    } else {
+      for (const id of bitrixIds) {
+        const m = (mappingsData || []).find((x) => x.bitrixUserId === id);
+        if (!m) continue;
+        const name =
+          m.bitrixName ||
+          `${m.firstName ?? ''} ${m.lastName ?? ''}`.trim() ||
+          id;
+        out.set(m.userId, name);
+      }
+    }
+    return Array.from(out.entries()).map(([id, name]) => ({ id, name }));
+  }, [task, isLocal, appUsersData, mappingsData]);
+
+  // Build a uniform options list for the UserPicker
+  const pickerOptions = useMemo(() => {
+    if (isLocal) {
+      return (appUsersData || []).map((u) => {
+        const name = `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email;
+        return { id: String(u.id), name };
+      });
+    }
+    return (mappingsData || []).map((m) => {
+      const name = m.bitrixName || `${m.firstName} ${m.lastName}`.trim() || m.bitrixUserId;
+      return { id: m.bitrixUserId, name };
+    });
+  }, [isLocal, appUsersData, mappingsData]);
+
+  const pickerEmptyHint = isLocal
+    ? 'Нет доступных пользователей'
+    : 'Нет замапленных пользователей';
+
   if (isLoading) {
     return (
       <div className="animate-pulse space-y-6">
@@ -283,7 +366,6 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
   const tags = Array.isArray(task.tags) ? task.tags : [];
   const accomplices: string[] = Array.isArray(task.accomplices) ? task.accomplices : [];
   const auditors: string[] = Array.isArray(task.auditors) ? task.auditors : [];
-  const userMappings = mappingsData || [];
 
   // ==================== Handlers ====================
 
@@ -459,9 +541,14 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
                 </button>
               </div>
             )}
-            <p className="text-small text-text-secondary mt-1">
-              {task.portalName || task.portalDomain}
-              {task.bitrixTaskId && ` / #${task.bitrixTaskId}`}
+            <p className="text-small text-text-secondary mt-1 flex items-center gap-2 flex-wrap">
+              <span>
+                {task.portalName || task.portalDomain}
+                {isLocal ? '' : task.bitrixTaskId ? ` / #${task.bitrixTaskId}` : ''}
+              </span>
+              {isLocal && (
+                <Badge variant="primary" size="sm">Локальная</Badge>
+              )}
             </p>
           </div>
         </div>
@@ -651,7 +738,8 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
             <UserPicker
               label="Участники"
               selectedIds={accomplices}
-              mappings={userMappings}
+              options={pickerOptions}
+              emptyHint={pickerEmptyHint}
               showPicker={showAccomplicesPicker}
               onTogglePicker={() => setShowAccomplicesPicker(!showAccomplicesPicker)}
               onAdd={handleAddAccomplice}
@@ -662,7 +750,8 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
             <UserPicker
               label="Наблюдатели"
               selectedIds={auditors}
-              mappings={userMappings}
+              options={pickerOptions}
+              emptyHint={pickerEmptyHint}
               showPicker={showAuditorsPicker}
               onTogglePicker={() => setShowAuditorsPicker(!showAuditorsPicker)}
               onAdd={handleAddAuditor}
@@ -674,6 +763,27 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
               <h4 className="text-xs font-medium text-zinc-400 mb-2">Ставка</h4>
               <TaskRateWidget taskId={task.id} timeSpent={task.timeSpent} trackedTime={timeTrackingData?.totalDuration ?? null} />
             </div>
+
+            {/* Admin-only: set rates for other participants of this task. */}
+            {isAdmin && participantAppUsers.length > 0 && (
+              <div className="pt-3 border-t border-zinc-700">
+                <h4 className="text-xs font-medium text-zinc-400 mb-2">Ставки участников</h4>
+                <div className="space-y-4">
+                  {participantAppUsers.map((u) => (
+                    <div key={u.id} className="space-y-1">
+                      <p className="text-xs text-text-muted">{u.name}</p>
+                      <TaskRateWidget
+                        taskId={task.id}
+                        timeSpent={task.timeSpent}
+                        trackedTime={timeTrackingData?.totalDuration ?? null}
+                        targetUserId={u.id}
+                        targetUserName={u.name}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Dates */}
             <div>

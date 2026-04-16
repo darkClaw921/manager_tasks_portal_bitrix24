@@ -19,9 +19,17 @@ const sqlite = new Database(DB_PATH);
 sqlite.pragma('journal_mode = WAL');
 // Enable foreign keys
 sqlite.pragma('foreign_keys = ON');
+// Wait up to 10s if the DB is locked by a concurrent writer
+sqlite.pragma('busy_timeout = 10000');
 
 // Create Drizzle ORM instance
 export const db = drizzle(sqlite, { schema });
+
+// Skip schema init + seed during Next.js production build.
+// At build time, Next runs "Collecting page data" which imports every route
+// module concurrently — multiple workers opening/writing the same SQLite file
+// cause SQLITE_BUSY. Runtime behavior is unchanged.
+const IS_BUILD_PHASE = process.env.NEXT_PHASE === 'phase-production-build';
 
 // Initialize tables by running CREATE TABLE IF NOT EXISTS statements
 function initializeTables() {
@@ -280,6 +288,50 @@ function initializeTables() {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
+
+    CREATE TABLE IF NOT EXISTS meetings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      host_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      room_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      recording_enabled INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      started_at TEXT,
+      ended_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS meetings_room_name_unique ON meetings(room_name);
+
+    CREATE TABLE IF NOT EXISTS meeting_participants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'participant',
+      joined_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      left_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS meeting_recordings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      track_type TEXT NOT NULL,
+      user_id TEXT,
+      file_path TEXT NOT NULL,
+      egress_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'recording',
+      started_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      ended_at TEXT,
+      size_bytes INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS meeting_recordings_egress_id_unique ON meeting_recordings(egress_id);
+
+    CREATE TABLE IF NOT EXISTS meeting_annotations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
   `);
 
   // Migration: create user_portal_access entries for existing portals
@@ -291,63 +343,69 @@ function initializeTables() {
   `);
 }
 
-// Run initialization
-initializeTables();
+import { seedAdmin, seedLocalPortal } from './seed';
 
-// Migration: add author_photo column to task_comments if missing
-try {
-  sqlite.exec(`ALTER TABLE task_comments ADD COLUMN author_photo TEXT`);
-} catch {
-  // Column already exists
-}
+if (!IS_BUILD_PHASE) {
+  // Run initialization
+  initializeTables();
 
-// Migration: add responsible_photo and creator_photo columns to tasks if missing
-try {
-  sqlite.exec(`ALTER TABLE tasks ADD COLUMN responsible_photo TEXT`);
-} catch {
-  // Column already exists
-}
-try {
-  sqlite.exec(`ALTER TABLE tasks ADD COLUMN creator_photo TEXT`);
-} catch {
-  // Column already exists
-}
+  // Migration: add author_photo column to task_comments if missing
+  try {
+    sqlite.exec(`ALTER TABLE task_comments ADD COLUMN author_photo TEXT`);
+  } catch {
+    // Column already exists
+  }
 
-// Migration: add exclude_from_ai column to tasks if missing
-try {
-  sqlite.exec(`ALTER TABLE tasks ADD COLUMN exclude_from_ai INTEGER NOT NULL DEFAULT 0`);
-} catch {
-  // Column already exists — ignore
-}
+  // Migration: add responsible_photo and creator_photo columns to tasks if missing
+  try {
+    sqlite.exec(`ALTER TABLE tasks ADD COLUMN responsible_photo TEXT`);
+  } catch {
+    // Column already exists
+  }
+  try {
+    sqlite.exec(`ALTER TABLE tasks ADD COLUMN creator_photo TEXT`);
+  } catch {
+    // Column already exists
+  }
 
-// Migration: add client_id and client_secret columns to portals if missing
-try {
-  sqlite.exec(`ALTER TABLE portals ADD COLUMN client_id TEXT NOT NULL DEFAULT ''`);
-} catch {
-  // Column already exists — ignore
-}
-try {
-  sqlite.exec(`ALTER TABLE portals ADD COLUMN client_secret TEXT NOT NULL DEFAULT ''`);
-} catch {
-  // Column already exists — ignore
-}
+  // Migration: add exclude_from_ai column to tasks if missing
+  try {
+    sqlite.exec(`ALTER TABLE tasks ADD COLUMN exclude_from_ai INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists — ignore
+  }
 
-// Migration: add attached_files column to task_comments if missing
-try {
-  sqlite.exec(`ALTER TABLE task_comments ADD COLUMN attached_files TEXT`);
-} catch {
-  // Column already exists
-}
+  // Migration: add client_id and client_secret columns to portals if missing
+  try {
+    sqlite.exec(`ALTER TABLE portals ADD COLUMN client_id TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    sqlite.exec(`ALTER TABLE portals ADD COLUMN client_secret TEXT NOT NULL DEFAULT ''`);
+  } catch {
+    // Column already exists — ignore
+  }
 
-// Migration: add paid_amount column to task_rates if missing (partial-payment support for wallet)
-try {
-  sqlite.exec(`ALTER TABLE task_rates ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0`);
-} catch {
-  // Column already exists — ignore
-}
+  // Migration: add attached_files column to task_comments if missing
+  try {
+    sqlite.exec(`ALTER TABLE task_comments ADD COLUMN attached_files TEXT`);
+  } catch {
+    // Column already exists
+  }
 
-// Seed admin user (async, runs in background on first load)
-import { seedAdmin } from './seed';
-seedAdmin().catch((err) => console.error('[db] Seed error:', err));
+  // Migration: add paid_amount column to task_rates if missing (partial-payment support for wallet)
+  try {
+    sqlite.exec(`ALTER TABLE task_rates ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Seed admin user (async, runs in background on first load),
+  // then seed the synthetic local portal (needs admin to exist).
+  seedAdmin()
+    .then(() => seedLocalPortal())
+    .catch((err) => console.error('[db] Seed error:', err));
+}
 
 export default db;

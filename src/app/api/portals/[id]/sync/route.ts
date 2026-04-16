@@ -7,6 +7,7 @@ import { fullSync } from '@/lib/bitrix/sync';
 import { hasPortalAccess } from '@/lib/portals/access';
 import { registerEventHandlers, listEventHandlers } from '@/lib/bitrix/events';
 import { encrypt } from '@/lib/crypto/encryption';
+import { isLocalPortal } from '@/lib/portals/local';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -47,6 +48,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json(
         { error: 'Not Found', message: 'Portal not found' },
         { status: 404 }
+      );
+    }
+
+    // Local portal has no Bitrix24 connection — manual sync is not applicable.
+    if (isLocalPortal(portal)) {
+      return NextResponse.json(
+        { error: 'Validation', message: 'Local portal cannot be synced' },
+        { status: 400 }
       );
     }
 

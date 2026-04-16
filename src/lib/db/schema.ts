@@ -285,6 +285,56 @@ export const appSettings = sqliteTable('app_settings', {
   updatedAt: text('updated_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
 });
 
+// ==================== MEETINGS ====================
+export const meetings = sqliteTable('meetings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  title: text('title').notNull(),
+  hostId: integer('host_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  roomName: text('room_name').notNull(), // UUID для LiveKit
+  status: text('status').notNull().default('scheduled'), // 'scheduled' | 'live' | 'ended'
+  recordingEnabled: integer('recording_enabled', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  startedAt: text('started_at'),
+  endedAt: text('ended_at'),
+}, (table) => [
+  uniqueIndex('meetings_room_name_unique').on(table.roomName),
+]);
+
+// ==================== MEETING PARTICIPANTS ====================
+export const meetingParticipants = sqliteTable('meeting_participants', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  meetingId: integer('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: text('role').notNull().default('participant'), // 'host' | 'participant'
+  joinedAt: text('joined_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  leftAt: text('left_at'),
+});
+
+// ==================== MEETING RECORDINGS ====================
+export const meetingRecordings = sqliteTable('meeting_recordings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  meetingId: integer('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  trackType: text('track_type').notNull(), // 'audio' | 'video' | 'mixed' | 'final_mkv'
+  userId: text('user_id'), // nullable: для mixed/video/final не привязан к одному юзеру
+  filePath: text('file_path').notNull(),
+  egressId: text('egress_id').notNull(), // LiveKit egress id
+  status: text('status').notNull().default('recording'), // 'recording' | 'processing' | 'done' | 'failed'
+  startedAt: text('started_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  endedAt: text('ended_at'),
+  sizeBytes: integer('size_bytes'),
+}, (table) => [
+  uniqueIndex('meeting_recordings_egress_id_unique').on(table.egressId),
+]);
+
+// ==================== MEETING ANNOTATIONS ====================
+export const meetingAnnotations = sqliteTable('meeting_annotations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  meetingId: integer('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  payload: text('payload').notNull(), // JSON snapshot of strokes
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+});
+
 // ==================== Type Exports ====================
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -342,3 +392,15 @@ export type NewPaymentRequest = typeof paymentRequests.$inferInsert;
 
 export type PaymentRequestItem = typeof paymentRequestItems.$inferSelect;
 export type NewPaymentRequestItem = typeof paymentRequestItems.$inferInsert;
+
+export type Meeting = typeof meetings.$inferSelect;
+export type NewMeeting = typeof meetings.$inferInsert;
+
+export type MeetingParticipant = typeof meetingParticipants.$inferSelect;
+export type NewMeetingParticipant = typeof meetingParticipants.$inferInsert;
+
+export type MeetingRecording = typeof meetingRecordings.$inferSelect;
+export type NewMeetingRecording = typeof meetingRecordings.$inferInsert;
+
+export type MeetingAnnotation = typeof meetingAnnotations.$inferSelect;
+export type NewMeetingAnnotation = typeof meetingAnnotations.$inferInsert;

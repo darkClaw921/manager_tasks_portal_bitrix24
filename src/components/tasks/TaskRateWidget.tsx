@@ -15,6 +15,14 @@ export interface TaskRateWidgetProps {
   taskId: number;
   timeSpent?: number | null;
   trackedTime?: number | null;
+  /**
+   * When set, the widget manages the rate of that app-user instead of the
+   * current viewer. Admin-only on the backend — non-admin viewers will get a
+   * 403 toast on save/delete.
+   */
+  targetUserId?: number;
+  /** Display label used in confirmations/toasts when `targetUserId` is set. */
+  targetUserName?: string;
 }
 
 function PencilIcon({ className }: { className?: string }) {
@@ -61,8 +69,8 @@ function calculateTotal(
   return amount * hours;
 }
 
-export function TaskRateWidget({ taskId, timeSpent, trackedTime }: TaskRateWidgetProps) {
-  const { data: rate, isLoading } = useTaskRate(taskId);
+export function TaskRateWidget({ taskId, timeSpent, trackedTime, targetUserId, targetUserName }: TaskRateWidgetProps) {
+  const { data: rate, isLoading } = useTaskRate(taskId, targetUserId);
   const upsertRate = useUpsertTaskRate();
   const deleteRate = useDeleteTaskRate();
   const { toast } = useToast();
@@ -123,11 +131,13 @@ export function TaskRateWidget({ taskId, timeSpent, trackedTime }: TaskRateWidge
         amount: parsedAmount,
         hoursOverride: parsedHours ?? null,
         note: note.trim() || null,
+        userId: targetUserId,
       },
       {
         onSuccess: () => {
           setEditing(false);
-          toast('success', rate ? 'Ставка обновлена' : 'Ставка добавлена');
+          const who = targetUserName ? ` для ${targetUserName}` : '';
+          toast('success', (rate ? 'Ставка обновлена' : 'Ставка добавлена') + who);
         },
         onError: (err) => {
           toast('error', err.message || 'Ошибка при сохранении ставки');
@@ -137,8 +147,9 @@ export function TaskRateWidget({ taskId, timeSpent, trackedTime }: TaskRateWidge
   }
 
   function handleDelete() {
-    if (!confirm('Удалить ставку?')) return;
-    deleteRate.mutate(taskId, {
+    const who = targetUserName ? ` пользователя ${targetUserName}` : '';
+    if (!confirm(`Удалить ставку${who}?`)) return;
+    deleteRate.mutate({ taskId, userId: targetUserId }, {
       onSuccess: () => {
         setEditing(false);
         toast('success', 'Ставка удалена');

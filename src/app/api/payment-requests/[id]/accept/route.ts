@@ -4,7 +4,7 @@ import {
   acceptPaymentRequest,
   PaymentRequestError,
 } from '@/lib/wallet/payment-requests';
-import { mapPaymentRequestError } from '../../route';
+import { mapPaymentRequestError } from '../../_utils';
 
 type RouteContext = { params: Promise<{ id: string }> };
 

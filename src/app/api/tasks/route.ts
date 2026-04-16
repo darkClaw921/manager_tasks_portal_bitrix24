@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { tasks, portals } from '@/lib/db/schema';
+import { tasks, portals, users } from '@/lib/db/schema';
 import { eq, and, sql, lte, gte, asc, desc } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { createBitrix24Client, Bitrix24Error } from '@/lib/bitrix/client';
@@ -8,6 +8,7 @@ import { upsertTask } from '@/lib/bitrix/tasks';
 import { buildTaskAccessFilter, buildPortalTaskFilter } from '@/lib/portals/task-filter';
 import { hasPortalAccess } from '@/lib/portals/access';
 import { getBitrixUserIdForUser } from '@/lib/portals/mappings';
+import { isLocalPortal } from '@/lib/portals/local';
 import type { BitrixTask } from '@/types';
 
 /**
@@ -238,6 +239,136 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    // ===== LOCAL PORTAL BRANCH =====
+    // Local tasks live only in this app's DB — no Bitrix24 call.
+    // Synthetic negative bitrixTaskId disambiguates from real Bitrix tasks.
+    if (isLocalPortal(portal)) {
+      // Coerce responsibleId to string (may come as number from app users picker)
+      const localResponsibleId: string = responsibleId !== undefined && responsibleId !== null
+        ? String(responsibleId)
+        : String(auth.user.userId);
+
+      // Compute synthetic bitrixTaskId: min(-1, current_min - 1) for this portal
+      const minRow = db
+        .select({ minId: sql<number | null>`MIN(${tasks.bitrixTaskId})` })
+        .from(tasks)
+        .where(eq(tasks.portalId, portalId))
+        .get();
+      const currentMin = minRow?.minId ?? null;
+      const syntheticBitrixTaskId = currentMin !== null && currentMin < 0
+        ? currentMin - 1
+        : -1;
+
+      // Snapshot creator name from app users table
+      const creatorRow = db
+        .select({ firstName: users.firstName, lastName: users.lastName })
+        .from(users)
+        .where(eq(users.id, auth.user.userId))
+        .get();
+      const creatorName = creatorRow
+        ? `${creatorRow.firstName} ${creatorRow.lastName}`.trim()
+        : null;
+
+      // Snapshot responsible name — try app users table by id
+      let responsibleName: string | null = null;
+      const responsibleUserIdNum = parseInt(localResponsibleId, 10);
+      if (!isNaN(responsibleUserIdNum)) {
+        const respRow = db
+          .select({ firstName: users.firstName, lastName: users.lastName })
+          .from(users)
+          .where(eq(users.id, responsibleUserIdNum))
+          .get();
+        if (respRow) {
+          responsibleName = `${respRow.firstName} ${respRow.lastName}`.trim();
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      const insertResult = db
+        .insert(tasks)
+        .values({
+          portalId,
+          bitrixTaskId: syntheticBitrixTaskId,
+          title,
+          description: description ?? null,
+          status: 'NEW',
+          priority: priority ?? '1',
+          responsibleId: localResponsibleId,
+          responsibleName,
+          creatorId: String(auth.user.userId),
+          creatorName,
+          deadline: deadline ?? null,
+          tags: tags && Array.isArray(tags) ? JSON.stringify(tags) : null,
+          bitrixUrl: null,
+          createdDate: nowIso,
+          changedDate: nowIso,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        })
+        .run();
+
+      const localTaskIdLocal = Number(insertResult.lastInsertRowid);
+
+      const taskRowLocal = db
+        .select({
+          id: tasks.id,
+          portalId: tasks.portalId,
+          bitrixTaskId: tasks.bitrixTaskId,
+          title: tasks.title,
+          description: tasks.description,
+          descriptionHtml: tasks.descriptionHtml,
+          status: tasks.status,
+          priority: tasks.priority,
+          mark: tasks.mark,
+          responsibleId: tasks.responsibleId,
+          responsibleName: tasks.responsibleName,
+          responsiblePhoto: tasks.responsiblePhoto,
+          creatorId: tasks.creatorId,
+          creatorName: tasks.creatorName,
+          creatorPhoto: tasks.creatorPhoto,
+          groupId: tasks.groupId,
+          stageId: tasks.stageId,
+          deadline: tasks.deadline,
+          startDatePlan: tasks.startDatePlan,
+          endDatePlan: tasks.endDatePlan,
+          createdDate: tasks.createdDate,
+          changedDate: tasks.changedDate,
+          closedDate: tasks.closedDate,
+          timeEstimate: tasks.timeEstimate,
+          timeSpent: tasks.timeSpent,
+          tags: tasks.tags,
+          accomplices: tasks.accomplices,
+          auditors: tasks.auditors,
+          bitrixUrl: tasks.bitrixUrl,
+          createdAt: tasks.createdAt,
+          updatedAt: tasks.updatedAt,
+          portalName: portals.name,
+          portalColor: portals.color,
+          portalDomain: portals.domain,
+        })
+        .from(tasks)
+        .innerJoin(portals, eq(tasks.portalId, portals.id))
+        .where(eq(tasks.id, localTaskIdLocal))
+        .get();
+
+      if (!taskRowLocal) {
+        return NextResponse.json(
+          { error: 'Internal', message: 'Task created but could not be retrieved' },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        data: {
+          ...taskRowLocal,
+          tags: taskRowLocal.tags ? JSON.parse(taskRowLocal.tags) : null,
+          accomplices: taskRowLocal.accomplices ? JSON.parse(taskRowLocal.accomplices) : null,
+          auditors: taskRowLocal.auditors ? JSON.parse(taskRowLocal.auditors) : null,
+        },
+      }, { status: 201 });
+    }
+    // ===== END LOCAL PORTAL BRANCH =====
 
     // Resolve RESPONSIBLE_ID: use provided, fallback to current user's bitrix mapping
     let effectiveResponsibleId = responsibleId;

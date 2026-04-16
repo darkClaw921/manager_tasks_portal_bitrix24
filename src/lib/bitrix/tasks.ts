@@ -67,13 +67,19 @@ export function mapStatusToBitrix(status: string): string {
 
 /**
  * Generate Bitrix24 direct URL for a task.
+ *
+ * Returns null for synthetic local-portal tasks (bitrixTaskId < 0) — they have
+ * no counterpart in Bitrix24 and must not expose a broken "Открыть в Bitrix24" link.
  */
 export function generateBitrixUrl(
   domain: string,
   bitrixTaskId: number,
   groupId: number | null,
   responsibleId: string | null
-): string {
+): string | null {
+  if (bitrixTaskId < 0) {
+    return null;
+  }
   if (groupId && groupId > 0) {
     return `https://${domain}/workgroups/group/${groupId}/tasks/task/view/${bitrixTaskId}/`;
   }

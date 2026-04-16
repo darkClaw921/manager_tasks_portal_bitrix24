@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, type FormEvent } from 'react';
 import { useUIStore } from '@/stores/ui-store';
 import { usePortals } from '@/hooks/usePortals';
 import { useCreateTask } from '@/hooks/useTasks';
+import { useUsers } from '@/hooks/useUsers';
 import { usePortalStore } from '@/stores/portal-store';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { InputField } from '@/components/ui/InputField';
 import { TextareaField } from '@/components/ui/TextareaField';
@@ -67,6 +69,12 @@ export function CreateTaskModal() {
     }
   }, [isOpen]);
 
+  // Clear responsibleId when switching portal type (bitrix <-> local)
+  // since the id semantics differ (bitrix user id vs app user id)
+  useEffect(() => {
+    setResponsibleId('');
+  }, [portalId]);
+
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
     if (!portalId) newErrors.portalId = 'Выберите портал';
@@ -102,14 +110,26 @@ export function CreateTaskModal() {
     );
   }
 
+  const selectedPortal = portals?.find((p) => p.id === parseInt(portalId, 10));
+  const isLocal = selectedPortal?.domain === 'local';
+
+  // App users loaded only when a local portal is selected (lazy)
+  const { data: appUsers } = useUsers();
+
+  const responsibleOptions = useMemo(() => {
+    if (!isLocal) return [] as Array<{ value: string; label: string }>;
+    return (appUsers || []).map((u) => {
+      const name = `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email;
+      return { value: String(u.id), label: name };
+    });
+  }, [isLocal, appUsers]);
+
   if (!isOpen) return null;
 
   const portalOptions = (portals || []).map((p) => ({
     value: String(p.id),
     label: p.name || p.domain,
   }));
-
-  const selectedPortal = portals?.find((p) => p.id === parseInt(portalId, 10));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -154,6 +174,11 @@ export function CreateTaskModal() {
                   error={errors.portalId}
                 />
               </div>
+              {isLocal && (
+                <Badge variant="primary" size="sm">
+                  Локальная
+                </Badge>
+              )}
             </div>
           </div>
 
@@ -192,13 +217,24 @@ export function CreateTaskModal() {
           </div>
 
           {/* Responsible */}
-          <InputField
-            label="Ответственный (ID)"
-            placeholder="ID пользователя в Bitrix24"
-            value={responsibleId}
-            onChange={(e) => setResponsibleId(e.target.value)}
-            helperText="ID пользователя из Bitrix24 портала"
-          />
+          {isLocal ? (
+            <SelectField
+              label="Ответственный"
+              options={responsibleOptions}
+              placeholder="Выберите пользователя"
+              value={responsibleId}
+              onChange={(e) => setResponsibleId(e.target.value)}
+              helperText="Пользователь приложения"
+            />
+          ) : (
+            <InputField
+              label="Ответственный (ID)"
+              placeholder="ID пользователя в Bitrix24"
+              value={responsibleId}
+              onChange={(e) => setResponsibleId(e.target.value)}
+              helperText="ID пользователя из Bitrix24 портала"
+            />
+          )}
 
           {/* Tags */}
           <InputField

@@ -22,8 +22,11 @@ export interface PaymentsResponse {
 
 // ==================== Fetch Functions ====================
 
-async function fetchTaskRate(taskId: number): Promise<TaskRate | null> {
-  const response = await fetch(`/api/tasks/${taskId}/rate`);
+async function fetchTaskRate(taskId: number, userId?: number): Promise<TaskRate | null> {
+  const url = userId != null
+    ? `/api/tasks/${taskId}/rate?userId=${userId}`
+    : `/api/tasks/${taskId}/rate`;
+  const response = await fetch(url);
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.message || 'Failed to fetch task rate');
@@ -33,7 +36,7 @@ async function fetchTaskRate(taskId: number): Promise<TaskRate | null> {
 }
 
 async function upsertTaskRate(
-  input: UpsertTaskRateInput
+  input: UpsertTaskRateInput & { userId?: number }
 ): Promise<TaskRate> {
   const { taskId, ...body } = input;
   const response = await fetch(`/api/tasks/${taskId}/rate`, {
@@ -49,8 +52,11 @@ async function upsertTaskRate(
   return data.data;
 }
 
-async function deleteTaskRate(taskId: number): Promise<void> {
-  const response = await fetch(`/api/tasks/${taskId}/rate`, {
+async function deleteTaskRate(taskId: number, userId?: number): Promise<void> {
+  const url = userId != null
+    ? `/api/tasks/${taskId}/rate?userId=${userId}`
+    : `/api/tasks/${taskId}/rate`;
+  const response = await fetch(url, {
     method: 'DELETE',
   });
   if (!response.ok) {
@@ -120,41 +126,45 @@ async function batchUpdatePaymentStatus(
 /**
  * Hook to fetch the current user's rate for a specific task.
  */
-export function useTaskRate(taskId: number | null) {
+export function useTaskRate(taskId: number | null, userId?: number) {
   return useQuery({
-    queryKey: ['task-rate', taskId],
-    queryFn: () => fetchTaskRate(taskId!),
+    queryKey: ['task-rate', taskId, userId ?? 'self'],
+    queryFn: () => fetchTaskRate(taskId!, userId),
     enabled: !!taskId,
     staleTime: 5_000,
   });
 }
 
 /**
- * Hook to create or update a task rate.
+ * Hook to create or update a task rate. When `userId` is supplied in the
+ * input, the request is for that user (admin-only on the backend).
  */
 export function useUpsertTaskRate() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: UpsertTaskRateInput) => upsertTaskRate(input),
+    mutationFn: (input: UpsertTaskRateInput & { userId?: number }) => upsertTaskRate(input),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['task-rate', variables.taskId] });
       queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
   });
 }
 
 /**
- * Hook to delete a task rate.
+ * Hook to delete a task rate. When `userId` is supplied, deletes that user's
+ * rate (admin-only on the backend).
  */
 export function useDeleteTaskRate() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (taskId: number) => deleteTaskRate(taskId),
-    onSuccess: (_data, taskId) => {
-      queryClient.invalidateQueries({ queryKey: ['task-rate', taskId] });
+    mutationFn: ({ taskId, userId }: { taskId: number; userId?: number }) => deleteTaskRate(taskId, userId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['task-rate', variables.taskId] });
       queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
   });
 }

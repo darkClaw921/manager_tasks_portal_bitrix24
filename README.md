@@ -292,6 +292,107 @@ npm run db:encrypt    # Шифрование токенов в БД
 
 ---
 
+## Права и видимость
+
+### Роли уровня приложения
+
+- **Admin** (`users.isAdmin = 1`)
+- **User** (обычный)
+
+### Роли уровня портала (`user_portal_access.role`)
+
+- `admin` — управление порталом
+- `editor` — редактирование
+- `viewer` — просмотр (по умолчанию для локального портала)
+
+### Флаги видимости задач (`user_portal_access`)
+
+| Флаг | Что даёт |
+|------|----------|
+| `canSeeAll` | все задачи портала |
+| `canSeeResponsible` | задачи, где пользователь — ответственный |
+| `canSeeCreator` | задачи, где пользователь — постановщик |
+| `canSeeAccomplice` | задачи, где пользователь — соисполнитель |
+| `canSeeAuditor` | задачи, где пользователь — наблюдатель |
+
+Матчинг через `user_bitrix_mappings.bitrixUserId`. Для local portal `bitrixUserId = String(userId)`.
+
+### Задачи
+
+**Список `/tasks`, дашборд, календарь:**
+- Admin → все задачи всех порталов
+- User → задачи из `buildTaskAccessFilter` (портал + роль)
+
+**Детальная задача `GET /api/tasks/[id]`:**
+- Admin → любая
+- Владелец портала (`portals.userId`) → свои
+- Local portal → любой с `hasPortalAccess` (fast-path)
+- Остальные → только если задача матчится `buildTaskAccessFilter`
+
+**Редактирование `PATCH /api/tasks/[id]`, старт/завершение/этапы:**
+- Local portal: admin OR `hasPortalAccess`
+- Bitrix portal: только владелец портала
+
+### Порталы `/portals`
+
+- Admin → `AddPortalForm` + управление всеми
+- User → read-only список доступных (через `user_portal_access`)
+- Настройки портала `/portals/[id]/settings` → portal-admin (`user_portal_access.role = 'admin'`)
+
+### Пользователи `/admin/users`
+
+- Только Admin (guard в `admin/layout.tsx`)
+- Admin: CRUD, смена пароля, назначение `isAdmin`
+- User: редактирование только своего профиля (`PATCH /api/users/[id]` self)
+
+### Оплата `/payments`
+
+- Admin → все платежи всех пользователей, фильтр по user, исходящие запросы, создание запроса оплаты, PDF-экспорт, отметка оплачено
+- User → только свои `taskRates` (summary + таблица), PDF по своим
+
+### Кошелёк `/wallet`
+
+- Любой авторизованный → свои `earned/expected/deferred` + входящие запросы оплаты
+- Входящие запросы (`tab=requests`): только где `toUserId = currentUser`
+- Действия по запросу (принять / изменить+принять / отклонить) → только получатель
+
+### Запросы оплаты
+
+- Создать (`POST /api/payment-requests`) → admin
+- Исходящие (`direction=outgoing`) → admin видит свои
+- Входящие (`direction=incoming`) → user видит адресованные себе
+- Детали `GET /api/payment-requests/[id]` → отправитель ИЛИ получатель
+- Accept / Reject → только получатель
+
+### Ставки задач (`task_rates`)
+
+- `GET /api/tasks/[id]/rate` (своя) → любой участник
+- `GET /api/tasks/[id]/rate?userId=X` → только admin
+- `PUT` (создать/обновить чужую) → только admin, user должен быть участником задачи
+- `DELETE` чужую → только admin
+
+### Встречи `/meetings`
+
+- Доступ только участникам встречи (проверка в `/api/meetings/[id]`)
+
+### AI Отчёты `/reports`
+
+- Авторизованный пользователь → отчёты по своим задачам
+
+### Настройки системы
+
+- Work hours → admin only
+- Свои notification preferences, timezone, language → любой пользователь (self)
+
+### Аутентификация
+
+- `/login` — публично
+- `/dashboard`, `/tasks`, `/calendar`, `/portals`, `/settings`, `/reports`, `/admin`, `/meetings` → защищены middleware (JWT cookie `token`)
+- `/admin/**` → дополнительный layout-guard по `isAdmin`
+- Logout → `POST /api/auth/logout` (очищает cookie)
+
+---
+
 ## Лицензия
 
 Private. Все права защищены.

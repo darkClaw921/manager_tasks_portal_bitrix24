@@ -3,6 +3,7 @@ import { portals } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { BitrixTokenResponse } from '@/types';
 import { encrypt, decrypt } from '@/lib/crypto/encryption';
+import { LOCAL_PORTAL_MEMBER_ID } from '@/lib/portals/local';
 
 const BITRIX_OAUTH_URL = 'https://oauth.bitrix.info/oauth/token/';
 
@@ -35,6 +36,7 @@ const refreshMutex = new Map<number, Promise<string>>();
 export async function getValidToken(portalId: number): Promise<string> {
   const portal = db
     .select({
+      memberId: portals.memberId,
       accessToken: portals.accessToken,
       refreshToken: portals.refreshToken,
       tokenExpiresAt: portals.tokenExpiresAt,
@@ -45,6 +47,17 @@ export async function getValidToken(portalId: number): Promise<string> {
 
   if (!portal) {
     throw new Bitrix24Error('PORTAL_NOT_FOUND', `Portal ${portalId} not found`);
+  }
+
+  // Last-mile guard: the synthetic local portal has no Bitrix24 integration.
+  // If any call-site accidentally reaches the Bitrix branch with the local
+  // portal, fail loud and early instead of attempting an OAuth refresh with
+  // placeholder 'LOCAL' tokens.
+  if (portal.memberId === LOCAL_PORTAL_MEMBER_ID) {
+    throw new Bitrix24Error(
+      'LOCAL_PORTAL',
+      'Local portal has no Bitrix24 integration'
+    );
   }
 
   // Check if token is still valid (with 60s buffer)

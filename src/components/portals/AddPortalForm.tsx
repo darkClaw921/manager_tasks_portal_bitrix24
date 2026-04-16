@@ -93,6 +93,8 @@ export function AddPortalForm({ onConnect }: AddPortalFormProps) {
           domain: cleanDomain,
           clientId: clientId.trim(),
           clientSecret: clientSecret.trim(),
+          name: name.trim() || undefined,
+          color: selectedColor,
         }),
       });
 

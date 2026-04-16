@@ -73,7 +73,7 @@ src/
 │   │   └── admin/
 │   │       ├── layout.tsx         # Admin layout guard: checks isAdmin via /api/auth/me, redirects non-admins to /dashboard
 │   │       └── users/
-│   │           ├── page.tsx       # Admin users page: UserTable + CreateUserForm + UserDetailModal, full CRUD
+│   │           ├── page.tsx       # Admin users page: UserTable + CreateUserForm + UserDetailModal + ChangePasswordModal, full CRUD
 │   │           └── loading.tsx    # Admin users skeleton: header + user cards
 │   └── api/
 │       ├── auth/
@@ -234,10 +234,11 @@ src/
 │   │   ├── ActiveTimersWidget.tsx  # Header dropdown widget: clock icon trigger with active timer count badge, dropdown with timer list (portal indicator, task title, portal name, live HH:MM:SS via useElapsedTime, stop button), click navigates to task, close on outside click/Escape, empty state, loading skeleton. Uses useActiveTimers, useStopTimer, useElapsedTime hooks
 │   │   └── TaskTimerControls.tsx   # Task detail sidebar widget: section header, live timer display + Stop button (red) when active, Start button (primary) when idle, total accumulated time via formatDuration, expandable history list with date/duration/delete per completed session. Props: { taskId: number }. Uses useTaskTimeTracking, useStartTimer, useStopTimer, useDeleteTimeEntry, useElapsedTime, formatDuration
 │   ├── admin/
-│   │   ├── index.ts               # Barrel export: UserTable, CreateUserForm, UserDetailModal
+│   │   ├── index.ts               # Barrel export: UserTable, CreateUserForm, UserDetailModal, ChangePasswordModal
 │   │   ├── UserTable.tsx           # Admin user table: email, name, role badge, portal count, created date; inline edit, delete with confirm; mobile cards layout
 │   │   ├── CreateUserForm.tsx      # Create user form: email, password, first/last name, isAdmin checkbox; client validation
-│   │   └── UserDetailModal.tsx     # User detail modal: StatCards (tasks stats), portal list, account info; fetches from /api/users/[id]/stats and /portals
+│   │   ├── UserDetailModal.tsx     # User detail modal: StatCards (tasks stats), portal list, account info; fetches from /api/users/[id]/stats and /portals
+│   │   └── ChangePasswordModal.tsx # Admin change-password modal: new password + confirm inputs, client policy validation (len/upper/lower/digit), calls PATCH /api/users/[id] with password field
 │   └── settings/
 │       └── SystemSettings.tsx     # System settings tab (admin only): work hours configuration with start (0-23) and end (1-24) select fields, client-side validation (start < end), useUpdateWorkHours mutation, toast notifications
 ├── lib/
@@ -247,8 +248,8 @@ src/
 │   │   └── sanitize.ts            # HTML sanitization via isomorphic-dompurify: sanitizeHtml() (whitelist of safe tags/attrs), sanitizeText() (strip all tags)
 │   ├── db/
 │   │   ├── index.ts               # DB initialization: creates SQLite connection, 19 tables (incl. app_settings, time_tracking_entries, payment_requests, payment_request_items), migrates existing portals to user_portal_access, runtime ALTER migrations (added paid_amount column on task_rates), runs seed
-│   │   ├── schema.ts              # Drizzle ORM schema: 19 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, task_rates (with paidAmount for partial payments), time_tracking_entries, payment_requests, payment_request_items, notifications, ai_reports, ai_chat_messages, app_settings)
-│   │   └── seed.ts                # Admin seed from env vars (ADMIN_EMAIL/PASSWORD) + default app settings seed (work_hours_start=9, work_hours_end=18)
+│   │   ├── schema.ts              # Drizzle ORM schema: 23 tables with types (users, portals, user_portal_access, user_bitrix_mappings, portal_custom_stages, portal_stage_mappings, tasks, task_stages, task_comments, task_checklist_items, task_files, task_rates (with paidAmount for partial payments), time_tracking_entries, payment_requests, payment_request_items, notifications, ai_reports, ai_chat_messages, app_settings, meetings, meeting_participants, meeting_recordings, meeting_annotations)
+│   │   └── seed.ts                # seedAdmin (admin from ADMIN_EMAIL/PASSWORD env vars), default app settings seed (work_hours_start=9, work_hours_end=18), seedLocalPortal (idempotent bootstrap of synthetic local portal with memberId=LOCAL_PORTAL_MEMBER_ID, domain='local', placeholder 'LOCAL' tokens; owned by first admin user; creates user_portal_access + user_bitrix_mappings rows for every existing user so local tasks are accessible on upgrade)
 │   ├── auth/
 │   │   ├── jwt.ts                 # JWT sign/verify with jose (HS256, 7d expiry); getJwtSecret() — environment-aware secret enforcement (throws in production if JWT_SECRET missing, warns+fallback in dev); shared by middleware.ts and oauth.ts
 │   │   ├── password.ts            # bcryptjs hash/verify
@@ -257,20 +258,21 @@ src/
 │   │   └── guards.ts             # requireAuth(), requireAdmin(), isAuthError() helpers
 │   ├── bitrix/
 │   │   ├── client.ts              # Bitrix24Client class: call(method, params), callBatch(commands, max 50), auto token refresh on expired_token, retry once
-│   │   ├── token-manager.ts       # getValidToken(portalId): checks expiry, per-portal mutex refresh via Promise chain, reads clientId/clientSecret from portal DB record (encrypted), saves new tokens (encrypted) to DB; redactSensitiveData() strips tokens from error logs; Bitrix24Error class
-│   │   ├── oauth.ts               # getAuthUrl(domain, userId, clientId, clientSecret): signed JWT state with per-portal credentials, OAuth URL; verifyOAuthState(state) -> {userId, clientId, clientSecret}; exchangeCode(code, clientId, clientSecret): token exchange via oauth.bitrix.info
+│   │   ├── token-manager.ts       # getValidToken(portalId): checks expiry, per-portal mutex refresh via Promise chain, reads clientId/clientSecret from portal DB record (encrypted), saves new tokens (encrypted) to DB; throws Bitrix24Error('LOCAL_PORTAL') when portal.memberId===LOCAL_PORTAL_MEMBER_ID (last-mile guard — local portal has no Bitrix24 OAuth); redactSensitiveData() strips tokens from error logs; Bitrix24Error class
+│   │   ├── oauth.ts               # getAuthUrl(domain, userId, clientId, clientSecret, name?, color?): signed JWT state carries per-portal credentials + portal metadata (name/color), returns OAuth URL; verifyOAuthState(state) -> {userId, clientId, clientSecret, name?, color?}; exchangeCode(code, clientId, clientSecret): token exchange via oauth.bitrix.info
 │   │   ├── events.ts              # registerEventHandlers(portalId): batch event.bind for ONTASKADD/UPDATE/DELETE/COMMENTADD; unregisterEventHandlers: batch event.unbind
 │   │   ├── stages.ts              # fetchStages(portalId, entityId): calls task.stages.get, upserts to DB; getStagesForPortal(portalId, entityId?): local DB query sorted by sort
 │   │   ├── stage-settings.ts     # Custom stage CRUD + Bitrix24 mapping: getCustomStages(portalId) with mappings JOIN, createCustomStage, updateCustomStage, deleteCustomStage (cascade), mapBitrixStageToCustom, unmapBitrixStage, getCustomStageForTask, reorderCustomStages, getCustomStageById, getCustomStageMappingsForPortal
-│   │   ├── tasks.ts               # TASK_SELECT_FIELDS, mapBitrixStatus/mapStatusToBitrix, generateBitrixUrl, mapBitrixTaskToLocal, isTaskRelevantToUsers (checks task roles against mapped user IDs Set, returns true if empty set), upsertTask, fetchAllTasks (pagination), fetchSingleTask, getPortalDomain
+│   │   ├── tasks.ts               # TASK_SELECT_FIELDS, mapBitrixStatus/mapStatusToBitrix, generateBitrixUrl (returns string | null — null when bitrixTaskId<0, i.e. local synthetic tasks, so UI can hide "Открыть в Bitrix24" link), mapBitrixTaskToLocal, isTaskRelevantToUsers (checks task roles against mapped user IDs Set, returns false if empty set), upsertTask, fetchAllTasks (pagination), fetchSingleTask, getPortalDomain
 │   │   ├── users.ts               # fetchBitrixUsers(portalId): paginated user.get API (50/page); searchBitrixUsers(portalId, query): user.get with FIND filter
 │   │   ├── comments.ts            # mapBitrixCommentToLocal, fetchComments, syncComments, addComment (task.commentitem.add)
 │   │   ├── checklist.ts           # mapBitrixChecklistItemToLocal, fetchChecklist, syncChecklist, addChecklistItem, toggleChecklistItem (complete/renew), deleteChecklistItem
 │   │   ├── files.ts               # mapBitrixFileToLocal, fetchFiles, syncFiles
-│   │   ├── sync.ts                # fullSync(portalId): stages + all tasks with pagination + comments/checklist/files per task + update last_sync_at; фильтрует задачи по маппингу пользователей (задачи без замапленных участников пропускаются через isTaskRelevantToUsers). syncSingleTask(portalId, bitrixTaskId): фильтрует задачу по маппингу — нерелевантные задачи не сохраняются
+│   │   ├── sync.ts                # fullSync(portalId): early-return {tasksCount:0, errors:[]} when isLocalPortalId(portalId) (no network call); otherwise stages + all tasks with pagination + comments/checklist/files per task + update last_sync_at; фильтрует задачи по маппингу пользователей (задачи без замапленных участников пропускаются через isTaskRelevantToUsers). syncSingleTask(portalId, bitrixTaskId): early-return null for local portal; otherwise фильтрует задачу по маппингу — нерелевантные задачи не сохраняются
 │   │   └── webhook-handlers.ts    # handleWebhookEvent dispatcher + handlers: handleTaskAdd, handleTaskUpdate, handleTaskDelete, handleCommentAdd, handleCommentUpdate; handleTaskAdd/handleTaskUpdate/handleCommentAdd проверяют релевантность задачи замапленным пользователям через isTaskRelevantToUsers (нерелевантные пропускаются); handleTaskUpdate удаляет локальную задачу если она стала нерелевантна; createNotification helper; notifyUser() checks notify_* flags; notifyRecipients() resolves multi-user dispatch via notification-resolver; PortalInfo is { id, domain } (no userId)
 │   ├── portals/
 │   │   ├── access.ts              # Portal access CRUD: getUserPortals, getPortalUsers, hasPortalAccess, isPortalAdmin, getPortalAccess, grantPortalAccess, updatePortalAccess, revokePortalAccess (last-admin protection), getAccessiblePortalIds
+│   │   ├── local.ts               # Local (non-Bitrix24) portal helpers: LOCAL_PORTAL_MEMBER_ID='__local__' constant, getLocalPortalId() (cached DB lookup), invalidateLocalPortalCache(), isLocalPortal({memberId}) strict check, isLocalPortalId(portalId) async check
 │   │   ├── mappings.ts            # User-Bitrix24 mapping CRUD: getBitrixUserIdForUser, getUserForBitrixUserId, getUsersForBitrixUserIds (bulk inArray), getAllMappingsForPortal (with user info JOIN), getMappedBitrixUserIds (returns Set<string> of all mapped bitrix user IDs for portal, no JOIN), createMapping, deleteMapping, updateMapping
 │   │   ├── notification-resolver.ts # Notification recipient resolution: resolveNotificationRecipients(portalId, task) — collects bitrix user IDs from task, maps to app users, filters by can_see_* permissions, fallback to portal admin; resolveRecipientsForMention(portalId, bitrixUserIds) — maps mentioned bitrix IDs to app users without permission filtering
 │   │   └── task-filter.ts         # Task access filtering: buildTaskAccessFilter(userId) — builds parameterized SQL WHERE using Drizzle ORM operators (eq, like, or, and) based on user_portal_access permissions + user_bitrix_mappings; buildPortalTaskFilter(userId, portalId) — single portal variant; returns SQL type; uses like() for JSON array fields (accomplices, auditors); getAccessiblePortalIds(userId) — returns portal ID list
@@ -320,7 +322,7 @@ src/
 │   ├── portal-store.ts            # Zustand store with persist: portals[], activePortalId, CRUD actions; persists activePortalId to localStorage
 │   └── calendar-store.ts          # Zustand store with persist: view (CalendarView), currentDate (ISO string), selectedUserIds, slotDuration (30/60/120); actions: setView, setCurrentDate, goToToday, navigateWeek(±1), navigateDay(±1), toggleUser, setSelectedUserIds, setSlotDuration; persists view, slotDuration, selectedUserIds to localStorage key 'taskhub-calendar-store'
 └── types/
-    ├── index.ts                   # Re-exports all types (user, portal, task, calendar, notification, bitrix, api, payment, payment-request, time-tracking, wallet)
+    ├── index.ts                   # Re-exports all types (user, portal, task, calendar, notification, bitrix, api, payment, payment-request, time-tracking, wallet, meeting)
     ├── user.ts                    # User, UserWithoutPassword, LoginInput, CreateUserInput, UpdateUserInput
     ├── portal.ts                  # Portal, PortalPublic, CreatePortalInput, UpdatePortalInput, PortalAccessRole, PortalAccessPermissions, UserPortalAccess, UserBitrixMapping, PortalMappingCreate, PortalCustomStage, PortalStageMapping
     ├── task.ts                    # Task, TaskWithPortal, TaskStage, TaskComment, TaskChecklistItem, TaskFile, TaskFilters, Create/UpdateTaskInput
@@ -331,6 +333,7 @@ src/
     ├── payment-request.ts         # Payment-request types: PaymentRequestStatus ('pending'|'accepted'|'modified'|'rejected'), PaymentRequestItem (id/taskRateId/taskTitle/proposedAmount/appliedAmount?/expectedAmount), PaymentRequest (id/fromUserId+Name/toUserId+Name/totalAmount/note/status/respondedAt/createdAt/items[]), CreatePaymentRequestInput ({toUserId, items:[{taskRateId, proposedAmount}], note?}), AcceptPaymentRequestInput ({overrides?: Record<itemIdStr, number>})
     ├── time-tracking.ts           # TimeTrackingEntry, ActiveTimerEntry (extends TimeTrackingEntry), TaskTimeTrackingSummary
     ├── wallet.ts                  # Wallet types: WalletPaymentStatus ('unpaid'|'partial'|'paid'|'overpaid'), WalletRate (extends TaskRateWithTask + paidAmount/expectedAmount/paymentStatus), WalletSummary (earned/expected/deferred/paid/outstanding/tasksEarnedCount/tasksExpectedCount)
+    ├── meeting.ts                 # Meeting types: MeetingStatus ('scheduled'|'live'|'ended'), ParticipantRole ('host'|'participant'), RecordingTrackType ('audio'|'video'|'mixed'|'final_mkv'), RecordingStatus ('recording'|'processing'|'done'|'failed'); Meeting / MeetingParticipant / MeetingRecording (alias Recording) / MeetingAnnotation (+ New* variants) inferred from Drizzle schema; StrokeEvent / UndoEvent / ClearEvent and DrawingPayload (discriminated union on `type` for LiveKit data channel)
     └── api.ts                     # ApiResponse<T>, PaginatedResponse<T>, ApiError
 ```
 
@@ -341,7 +344,7 @@ src/
 | File | Description |
 |------|-------------|
 | [package.json](./package.json) | Dependencies, scripts (dev, build, type-check, db:push/studio/generate, vapid:generate, db:encrypt) |
-| [tsconfig.json](./tsconfig.json) | TypeScript strict mode, path alias `@/*` -> `./src/*`, excludes `service-worker/` dir |
+| [tsconfig.json](./tsconfig.json) | TypeScript strict mode, path alias `@/*` -> `./src/*`, excludes `service-worker/` and `meeting-server/` dirs (the worker has its own tsconfig with ES2022 target for BigInt/top-level await) |
 | [next.config.ts](./next.config.ts) | Next.js + @ducanh2912/next-pwa config (caching strategies, offline fallback, custom worker), `output: "standalone"` for Docker |
 | [postcss.config.mjs](./postcss.config.mjs) | PostCSS with @tailwindcss/postcss plugin |
 | [eslint.config.mjs](./eslint.config.mjs) | ESLint flat config with next/core-web-vitals + typescript |
@@ -354,7 +357,7 @@ src/
 
 ---
 
-## Database Schema (19 tables)
+## Database Schema (23 tables)
 
 | Table | Key Fields | Constraints |
 |-------|-----------|-------------|
@@ -377,6 +380,10 @@ src/
 | **ai_reports** | id, user_id FK, type (daily/weekly), period_start/end, content, stats (JSON) | - |
 | **ai_chat_messages** | id, user_id FK, role (user/assistant), content | - |
 | **app_settings** | id, key UNIQUE, value | UNIQUE(key) |
+| **meetings** | id, title, host_id FK(users CASCADE), room_name (LiveKit UUID), status ('scheduled'\|'live'\|'ended' — default 'scheduled'), recording_enabled, created_at, started_at?, ended_at? | UNIQUE(room_name) |
+| **meeting_participants** | id, meeting_id FK(meetings CASCADE), user_id FK(users CASCADE), role ('host'\|'participant' — default 'participant'), joined_at, left_at? | - |
+| **meeting_recordings** | id, meeting_id FK(meetings CASCADE), track_type ('audio'\|'video'\|'mixed'\|'final_mkv'), user_id? (nullable — for per-user audio), file_path, egress_id (LiveKit), status ('recording'\|'processing'\|'done'\|'failed' — default 'recording'), started_at, ended_at?, size_bytes? | UNIQUE(egress_id) |
+| **meeting_annotations** | id, meeting_id FK(meetings CASCADE), user_id FK(users CASCADE), payload (JSON stroke snapshot), created_at | - |
 
 All tables use INTEGER PRIMARY KEY AUTOINCREMENT. Foreign keys enforce CASCADE on delete (except notifications which use SET NULL for portal_id/task_id). Timestamps stored as ISO 8601 TEXT with CURRENT_TIMESTAMP default. On DB init, existing portals are auto-migrated to user_portal_access with admin role and can_see_all=1. Runtime migrations in [`db/index.ts`](./src/lib/db/index.ts) idempotently add `task_rates.paid_amount`, `tasks.responsible_photo/creator_photo/exclude_from_ai`, `task_comments.author_photo/attached_files`, `portals.client_id/client_secret` via guarded `ALTER TABLE`. `payment_requests` and `payment_request_items` are provisioned via `CREATE TABLE IF NOT EXISTS` so pre-existing databases pick them up on next boot.
 
@@ -390,7 +397,9 @@ All tables use INTEGER PRIMARY KEY AUTOINCREMENT. Foreign keys enforce CASCADE o
 3. **Auth check (API):** `getAuthUser(request)` in [lib/auth/middleware.ts](./src/lib/auth/middleware.ts) reads JWT from cookie or `Authorization: Bearer` header
 4. **Route protection (API):** `requireAuth()` / `requireAdmin()` guards in [guards.ts](./src/lib/auth/guards.ts) return user or 401/403 response
 5. **Current user:** GET `/api/auth/me` returns user profile (requires valid JWT)
+5a. **Logout:** POST `/api/auth/logout` clears `token` cookie (maxAge 0). Route at [logout/route.ts](./src/app/api/auth/logout/route.ts). Sidebar bottom has "Выйти" button that calls this then redirects to `/login`.
 6. **Admin seed:** On DB init, creates admin from `ADMIN_EMAIL` / `ADMIN_PASSWORD` env vars via [seed.ts](./src/lib/db/seed.ts)
+7. **Local portal seed:** After admin seed, [seedLocalPortal()](./src/lib/db/seed.ts) bootstraps the synthetic local portal (idempotent, owned by the first admin) and backfills `user_portal_access` + `user_bitrix_mappings` for existing users
 
 ---
 
@@ -519,6 +528,7 @@ Defined in [globals.css](./src/app/globals.css) via CSS variables and `@theme in
 - Per-portal mutex via `Map<portalId, Promise>` prevents concurrent refresh race conditions
 - Refresh hits `https://oauth.bitrix.info/oauth/token/` with `grant_type=refresh_token`
 - New tokens saved to DB immediately after refresh
+- Local portal guard: if `portal.memberId === LOCAL_PORTAL_MEMBER_ID`, throws `Bitrix24Error('LOCAL_PORTAL', 'Local portal has no Bitrix24 integration')` before any OAuth branch runs
 
 ### API Client ([`lib/bitrix/client.ts`](./src/lib/bitrix/client.ts))
 
@@ -529,11 +539,11 @@ Defined in [globals.css](./src/app/globals.css) via CSS variables and `@theme in
 
 ### Task Sync ([`lib/bitrix/sync.ts`](./src/lib/bitrix/sync.ts))
 
-- `fullSync(portalId)` - stages + all tasks (paginated by 50) + comments/checklist/files per task + update last_sync_at; фильтрует задачи по маппингу пользователей через `getMappedBitrixUserIds` + `isTaskRelevantToUsers` (задачи без замапленных участников пропускаются, не сохраняются в БД)
-- `syncSingleTask(portalId, bitrixTaskId)` - fetch and upsert single task with related data (for webhooks); фильтрует задачу по маппингу — нерелевантные задачи не сохраняются
+- `fullSync(portalId)` - early-return `{tasksCount:0, errors:[]}` without any network call when `isLocalPortalId(portalId)` is true; otherwise stages + all tasks (paginated by 50) + comments/checklist/files per task + update last_sync_at; фильтрует задачи по маппингу пользователей через `getMappedBitrixUserIds` + `isTaskRelevantToUsers` (задачи без замапленных участников пропускаются, не сохраняются в БД)
+- `syncSingleTask(portalId, bitrixTaskId)` - early-return `null` for local portal; otherwise fetches and upserts single task with related data (for webhooks); фильтрует задачу по маппингу — нерелевантные задачи не сохраняются
 - Helper modules: [tasks.ts](./src/lib/bitrix/tasks.ts) (mapping, upsert, fetch), [comments.ts](./src/lib/bitrix/comments.ts), [checklist.ts](./src/lib/bitrix/checklist.ts), [files.ts](./src/lib/bitrix/files.ts)
 - Bitrix24 status mapping: 1=NEW, 2=PENDING, 3=IN_PROGRESS, 4=SUPPOSEDLY_COMPLETED, 5=COMPLETED, 6=DEFERRED
-- `bitrix_url` generation: `/workgroups/group/{groupId}/tasks/task/view/{taskId}/` for group tasks, `/company/personal/user/{userId}/tasks/task/view/{taskId}/` otherwise
+- `bitrix_url` generation: `/workgroups/group/{groupId}/tasks/task/view/{taskId}/` for group tasks, `/company/personal/user/{userId}/tasks/task/view/{taskId}/` otherwise; `null` when `bitrixTaskId < 0` (synthetic local tasks have no Bitrix24 counterpart)
 
 ### Event Handlers ([`lib/bitrix/events.ts`](./src/lib/bitrix/events.ts))
 
@@ -562,27 +572,28 @@ Defined in [globals.css](./src/app/globals.css) via CSS variables and `@theme in
 | `/api/portals/[id]/access/[userId]` | PATCH | Update user permissions (portal admin or app admin) |
 | `/api/portals/[id]/access/[userId]` | DELETE | Revoke user access (protects last admin) |
 | `/api/portals/[id]/stages` | GET | Cached stages (optional `?refresh=true`) |
-| `/api/portals/[id]/sync` | POST | Full sync: stages + tasks + comments + checklists + files |
+| `/api/portals/[id]/sync` | POST | Full sync: stages + tasks + comments + checklists + files. Returns 400 `Local portal cannot be synced` when portal is local (`isLocalPortal(portal)`) |
 
 ### Task CRUD API
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/tasks` | GET | Paginated list with filters: portalId, status, priority, search (LIKE title), assignee, dateFrom/dateTo, sortBy, sortOrder, page, limit |
-| `/api/tasks` | POST | Create task: Bitrix24 `tasks.task.add` -> save to SQLite. Body: `{portalId, title, description?, priority?, deadline?, tags?, groupId?}` |
+| `/api/tasks` | POST | Create task. Dual-mode: **bitrix portal** — Bitrix24 `tasks.task.add` → upsertTask → SQLite; **local portal** — DB-only insert with synthetic negative `bitrixTaskId = min(-1, MIN(bitrixTaskId)-1)`, creatorName/responsibleName snapshotted from `users` table. Body: `{portalId, title, description?, priority?, deadline?, tags?, groupId?, responsibleId?}` |
 | `/api/tasks/[id]` | GET | Single task with optional `?include=comments,checklist,files` |
-| `/api/tasks/[id]` | PATCH | Update task: Bitrix24 `tasks.task.update` -> update SQLite. Body: `{title?, description?, priority?, deadline?, status?, responsibleId?, tags?}` |
-| `/api/tasks/[id]` | DELETE | Delete task: Bitrix24 `tasks.task.delete` -> delete from SQLite (cascades) |
-| `/api/tasks/[id]/start` | POST | Start task: Bitrix24 `tasks.task.start` -> status=IN_PROGRESS |
-| `/api/tasks/[id]/complete` | POST | Complete task: Bitrix24 `tasks.task.complete` -> status=COMPLETED |
-| `/api/tasks/[id]/stage` | POST | Move stage: Bitrix24 `task.stages.movetask`. Body: `{stageId}` |
-| `/api/tasks/[id]/comments` | POST | Add comment: Bitrix24 `task.commentitem.add` -> save locally. Body: `{message}` |
-| `/api/tasks/[id]/checklist` | POST | Add checklist item: Bitrix24 `task.checklistitem.add` -> save locally. Body: `{title}` |
-| `/api/tasks/[id]/checklist/[itemId]` | PATCH | Toggle checklist: Bitrix24 `task.checklistitem.complete/renew`. Body: `{isComplete}` |
-| `/api/tasks/[id]/checklist/[itemId]` | DELETE | Delete checklist item: Bitrix24 `task.checklistitem.delete` -> delete locally |
+| `/api/tasks/[id]` | PATCH | Update task. Dual-mode: **bitrix** — `tasks.task.update` then SQLite; **local** — SQLite only, re-snapshots `responsibleName` when `responsibleId` changes. Body: `{title?, description?, priority?, deadline?, status?, responsibleId?, tags?, accomplices?, auditors?, excludeFromAi?}` |
+| `/api/tasks/[id]` | DELETE | Delete task. Dual-mode: **bitrix** — `tasks.task.delete` then SQLite; **local** — SQLite only (cascades to comments/checklist/files) |
+| `/api/tasks/[id]/start` | POST | Set status=IN_PROGRESS. Dual-mode: **bitrix** — `tasks.task.start`; **local** — SQLite only |
+| `/api/tasks/[id]/complete` | POST | Set status=COMPLETED + closedDate. Dual-mode: **bitrix** — `tasks.task.complete`; **local** — SQLite only |
+| `/api/tasks/[id]/renew` | POST | Resume task: status=IN_PROGRESS, clear closedDate. Dual-mode: **bitrix** — `tasks.task.update STATUS=3`; **local** — SQLite only |
+| `/api/tasks/[id]/stage` | POST | Move stage. Dual-mode: **bitrix** — `task.stages.movetask`; **local** — update tasks.stageId only. Body: `{stageId}` |
+| `/api/tasks/[id]/comments` | POST | Add comment. Dual-mode: **bitrix** — `task.commentitem.add` + snapshot Bitrix author; **local** — insert with synthetic `bitrixCommentId = -Date.now()`, authorName snapshotted from `users`. Body: `{message}` |
+| `/api/tasks/[id]/checklist` | POST | Add checklist item. Dual-mode: **bitrix** — `task.checklistitem.add` with bitrixItemId; **local** — `bitrixItemId=null`. Body: `{title}` |
+| `/api/tasks/[id]/checklist/[itemId]` | PATCH | Toggle checklist item isComplete. Dual-mode: **bitrix** — `task.checklistitem.complete/renew`; **local** — SQLite only. Body: `{isComplete}` |
+| `/api/tasks/[id]/checklist/[itemId]` | DELETE | Delete checklist item. Dual-mode: **bitrix** — `task.checklistitem.delete`; **local** — SQLite only |
 
 Task GET uses permission-based filtering via `buildTaskAccessFilter()` / `buildPortalTaskFilter()` from `task-filter.ts`. Task POST verifies access via `hasPortalAccess()`. All task API routes enforce access via user_portal_access.
-Two-phase write pattern: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQLite is not updated.
+Two-phase write pattern for bitrix portal: Bitrix24 API first, then SQLite. If Bitrix24 fails, SQLite is not updated. For local portal (`memberId='__local__'`) all mutations are single-phase SQLite writes — no network calls. Local branch is gated by `isLocalPortal()` from `@/lib/portals/local`. Accomplices/auditors updates flow through PATCH `/api/tasks/[id]` (no dedicated sub-routes).
 
 ### Payment / Rate API
 
@@ -814,13 +825,14 @@ Route files: [`time-tracking/active/route.ts`](./src/app/api/time-tracking/activ
 - UserTable: desktop table layout + mobile card layout, responsive
 - CreateUserForm: validated form with email, password, name, isAdmin toggle
 - UserDetailModal: shows StatCards (task stats), portal list, account info
+- ChangePasswordModal: admin-only, triggered from UserTable row action — sets new password via PATCH /api/users/[id] (backend validates via `validatePassword`)
 
 ### User API
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/api/users` | GET | Admin | List all users with portal counts |
-| `/api/users` | POST | Admin | Create user (email, password, name, isAdmin) |
+| `/api/users` | POST | Admin | Create user (email, password, name, isAdmin); auto-grants local portal access (role:'viewer', canSeeAll:false, canSeeResponsible/Creator/Accomplice/Auditor:true) + creates user_bitrix_mappings row (bitrixUserId=String(newUserId)) — failures logged, do not block creation |
 | `/api/users/[id]` | GET | Admin/Self | User details with notification prefs |
 | `/api/users/[id]` | PATCH | Admin/Self | Update profile, notifications, role (admin fields admin-only) |
 | `/api/users/[id]` | DELETE | Admin | Delete user (cannot delete self, cascades) |
@@ -1006,3 +1018,127 @@ Each main route has a `loading.tsx` that renders appropriate skeletons:
 4. Database migrations run automatically via `db/index.ts` on first connection (CREATE TABLE IF NOT EXISTS + ALTER TABLE + seed)
 5. SQLite data persisted in named Docker volume `taskhub-data` mounted at `/app/data`
 6. Cron jobs enabled via `ENABLE_CRON=true` environment variable in compose
+
+---
+
+## Meetings Feature Overview
+
+Built-in video meetings powered by LiveKit. The feature is composed of three cooperating processes, all orchestrated via the root [docker-compose.yml](./docker-compose.yml) alongside the main app service:
+
+- **Next.js app** (`taskhub-next`) — hosts the meeting UI, mints LiveKit access tokens, and persists meeting metadata through Drizzle.
+- **LiveKit server** (`taskhub-livekit`) — SFU for audio/video/data channels; configured via `infra/livekit.yaml`.
+- **meeting-worker** (`taskhub-meeting-worker`) — standalone Fastify service responsible for LiveKit egress orchestration, webhook ingestion, and post-mux (ffmpeg) of recordings. Shares the SQLite file with Next.js via a bind-mounted `./data` volume.
+
+### Domain Types
+
+| File | Description |
+|------|-------------|
+| [src/types/meeting.ts](./src/types/meeting.ts) | Domain aliases over the Drizzle select/insert types for `meetings`, `meetingParticipants`, `meetingRecordings`, `meetingAnnotations`; enums `MeetingStatus`, `ParticipantRole`, `RecordingTrackType`, `RecordingStatus`; wire types for the drawing data channel (`StrokeEvent`, `UndoEvent`, `ClearEvent`, `DrawingPayload`) |
+
+Underlying DB schema lives in [src/lib/db/schema.ts](./src/lib/db/schema.ts) (tables `meetings`, `meeting_participants`, `meeting_recordings`, `meeting_annotations`).
+
+### Infrastructure — `infra/`
+
+| File | Description |
+|------|-------------|
+| [infra/livekit.yaml](./infra/livekit.yaml) | LiveKit server config: port 7880 (signalling), rtc.tcp_port 7881, UDP range 50000–50100, `keys:` map (dev-hardcoded, replace in prod), `webhook.urls: [http://meeting-worker:3100/webhook]`, log_level info, room defaults (auto_create, empty_timeout 300s, max_participants 50) |
+| [docker-compose.yml](./docker-compose.yml) | Full stack at repo root: services `taskhub` (Next.js + cron, depends on livekit+meeting-worker), `livekit` (image `livekit/livekit-server:latest`, mounts `infra/livekit.yaml`, exposes 7880/7881/50000-50100/udp, `LIVEKIT_KEYS` env override), `meeting-worker` (builds from `./meeting-server`, port 3100, healthcheck `/health`). Shared named volume `taskhub-data` for SQLite + recordings. Run: `docker compose --env-file .env.production up --build` |
+
+### `meeting-server/` — LiveKit worker
+
+Fastify-based Node.js service (compiled TypeScript, NodeNext ESM). Runs on port 3100. Shares the SQLite file with Next.js through WAL mode so both processes can coexist without corruption. Uses the same JWT secret as Next.js to verify internal session tokens.
+
+| File | Description |
+|------|-------------|
+| [meeting-server/package.json](./meeting-server/package.json) | Manifest (`type: "module"`): deps `livekit-server-sdk@^2`, `fastify@^5`, `better-sqlite3@^12`, `jose@^6`, `zod@^4`; devDeps `tsx`, `typescript`, `pino-pretty`, `@types/node`, `@types/better-sqlite3`. Scripts `dev` (tsx watch), `build` (tsc), `start` (node dist/index.js), `type-check`, `test` (`tsx --test src/__tests__/*.test.mts`) |
+| [meeting-server/tsconfig.json](./meeting-server/tsconfig.json) | Strict TS config: target ES2022, module/moduleResolution NodeNext, outDir `dist/`, rootDir `src/`, `strict`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, source maps on |
+| [meeting-server/Dockerfile](./meeting-server/Dockerfile) | Three stages: `deps` (node:20-alpine + python3/make/g++ for better-sqlite3, `npm ci`), `builder` (copies deps + src, runs `npm run build` then `npm prune --omit=dev`), `runner` (node:20-alpine + ffmpeg, non-root `worker` uid 1001, EXPOSE 3100, `CMD ["node","dist/index.js"]`) |
+| [meeting-server/.dockerignore](./meeting-server/.dockerignore) | Excludes `node_modules`, `dist`, `.git`, logs and `.env*` (keeps `.env.example`) from the build context |
+| [meeting-server/src/index.ts](./meeting-server/src/index.ts) | Entrypoint: pre-opens SQLite (fail-fast if missing), creates Fastify instance with pino logger (pretty-dev/json-prod) and `trustProxy`, exposes `GET /health` (returns `{status, service, version, uptime}`), registers `webhooksPlugin` (LiveKit webhook receiver) and `recordingsRoutesPlugin` (egress control API), installs SIGTERM/SIGINT graceful shutdown (server.close → onClose hook → closeDb), traps `unhandledRejection` and `uncaughtException` to force exit |
+| [meeting-server/src/config.ts](./meeting-server/src/config.ts) | Zod-validated env loader. Fields: `NODE_ENV`, `PORT` (3100), `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `DB_PATH` (/app/data/taskhub.db), `RECORDINGS_DIR` (/app/data/recordings), `JWT_SECRET` (required, no fallback). Exports typed `config` with grouped namespaces `livekit`, `paths`, `auth`. Prints all zod issues and calls `process.exit(1)` on failure |
+| [meeting-server/src/db.ts](./meeting-server/src/db.ts) | Direct `better-sqlite3` connection to the shared SQLite file. Pragmas: `journal_mode = WAL`, `foreign_keys = ON`, `synchronous = NORMAL`, `busy_timeout = 5000`. Row types: `MeetingRow`, `RecordingRow`, `RecordingTrackType`, `RecordingStatus`. Prepared-statement accessors: `getMeeting(id)`, `getMeetingByRoomName(roomName)`, `getRecordingByEgressId(egressId)`, `insertRecording(input)`, `updateRecordingStatus(egressId, status, sizeBytes?, endedAt?)`, `listRecordingsByMeeting(meetingId)`, `getActiveTrackEgressForMeeting(meetingId)` (all rows still in `recording` state), `listDoneAudioForMeeting(meetingId)`, `listDoneMixedForMeeting(meetingId)`, `insertFinalRecording(meetingId, filePath, egressId, sizeBytes?)`, `markParticipantJoined(meetingId, userId)` (upsert), `markParticipantLeft(meetingId, userId)`, `getUserDisplayName(userId)` (joins `users.first_name + last_name`). `closeDb()` for graceful shutdown |
+| [meeting-server/src/auth.ts](./meeting-server/src/auth.ts) | Verifies TaskHub session JWTs using the shared `JWT_SECRET`. `verifyToken(token)` throws on failure and returns `{userId, email, isAdmin}` typed payload (mirrors `src/lib/auth/jwt.ts` issuer `taskhub`, audience `taskhub-users`). `tryVerifyToken` is the non-throwing variant. `extractBearer(header)` pulls the token out of `Authorization: Bearer …` |
+| [meeting-server/src/egress.ts](./meeting-server/src/egress.ts) | Thin wrappers over `EgressClient` from `livekit-server-sdk` with lazy singleton. Path helpers: `meetingRecordingsDir(meetingId)`, `audioTrackFilePath(meetingId, userId, egressId)`, `roomCompositeFilePath(meetingId)`. API: `startTrackEgress({roomName, trackId, userId, meetingId})` — `DirectFileOutput` OGG, inserts `track_type='audio'` row with canonical path; `startRoomCompositeEgress({roomName, meetingId})` — `EncodedFileOutput` MP4 (`H264_720P_30`, layout `speaker`), inserts `track_type='mixed'` row; `stopEgress(egressId)` (idempotent: suppresses errors when local row is already terminal); `stopAllForMeeting(meetingId)` iterates active rows, marks them `processing`, returns `{stoppedEgressIds, failed[]}`. `setEgressClient(client)` test seam |
+| [meeting-server/src/webhooks.ts](./meeting-server/src/webhooks.ts) | Fastify plugin registering `POST /webhook`. `WebhookReceiver` verifies LiveKit signature (401 on miss/invalid). Adds `application/webhook+json` raw-text content parser so the verifier sees exact signed bytes. `parseUserIdFromIdentity(identity)` extracts numeric id from `"user:<id>"`. `dispatchWebhookEvent(event, ctx)` routes by `event.event`: `track_published` (starts per-track audio egress for late joiners when recording is active), `participant_joined` / `participant_left` (update `meeting_participants`), `egress_ended` (flips row to `done` or `failed`, stores size + endedAt, triggers `muxer.runForMeeting` once every active egress for the meeting has settled), `room_finished` (best-effort `stopAllForMeeting`). Unknown events are logged and acked. Handler errors return 200 to prevent retry storms |
+| [meeting-server/src/muxer.ts](./meeting-server/src/muxer.ts) | ffmpeg post-mux pipeline. `buildFfmpegArgs({videoFilePath, audioTracks, outputFilePath})` pure argv builder: emits `-y`, inputs video first then audios, `-map 0:v -c:v copy` (when video), `-map N:a -c:a copy` per audio + `-metadata:s:a:<i> title=<userName>` and `-metadata:s:a:<i> language=<lang>` (defaults `rus`). Throws when both inputs empty. `runFfmpeg(args, {ffmpegPath?})` spawn wrapper resolving `{exitCode, stderr}`. `runForMeeting(meetingId)` orchestrator: reads `listDoneMixedForMeeting` + `listDoneAudioForMeeting`, resolves user display names via `getUserDisplayName` (numeric ids) or falls back to the raw id, writes `final_<meetingId>.mkv` + sibling `final_<meetingId>.manifest.json` (`{finalMkv, tracks: [{userId, userName, trackIndex}]}`), inserts a `track_type='final_mkv'` row, marks it `done` with file size; non-zero exit codes mark the row `failed` and rethrow |
+| [meeting-server/src/routes.ts](./meeting-server/src/routes.ts) | Fastify plugin registering egress control endpoints. Auth: every route requires `Authorization: Bearer <service-jwt>` verified via `auth.ts`. `POST /recordings/start` (body `{meetingId, roomName}`) validates meeting existence + `roomName` match, calls `startRoomCompositeEgress` then enumerates `RoomServiceClient.listParticipants` and starts `startTrackEgress` for each unmuted audio `TrackInfo` (`TrackType.AUDIO`), returns `{ok, egressIds[]}`. `POST /recordings/stop` (body `{meetingId}`) → `stopAllForMeeting`, returns `{ok, stoppedEgressIds[]}`. `GET /recordings/status?meetingId=N` → `{meetingId, activeEgress, processing, done, failed}`. Aliases `POST /egress/start`, `POST /egress/stop` mirror the infra plan paths |
+| [meeting-server/src/\_\_tests\_\_/muxer.test.mts](./meeting-server/src/__tests__/muxer.test.mts) | `node:test` unit tests for `buildFfmpegArgs`: input ordering (video first), map flags (`0:v`, `N:a`), metadata stream-index accounting (counts *output audio streams*, always 0-based), per-track title/language overrides, video-only and audio-only permutations, empty-input throw. Sets minimum required env vars before dynamic import |
+
+### Next.js side — LiveKit bindings
+
+- Root `package.json` adds `livekit-client@^2` (browser SDK for the meeting UI), `livekit-server-sdk@^2` (token minting, egress orchestration from Next API routes), `msgpackr` (wire format for drawing strokes over the data channel), and devDep `tsx` (runs the `node:test` unit suite under TypeScript).
+- [next.config.ts](./next.config.ts) — `env.NEXT_PUBLIC_LIVEKIT_URL` is inlined into the client bundle (default `ws://localhost:7880`).
+- [.env.example](./.env.example) — documents the new vars: `LIVEKIT_URL`, `NEXT_PUBLIC_LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `MEETING_WORKER_URL`.
+- [package.json](./package.json) — `scripts.test` runs `tsx --test src/lib/meetings/__tests__/*.test.mts`.
+
+### Meetings Service Layer ([`src/lib/meetings/`](./src/lib/meetings/))
+
+| File | Description |
+|------|-------------|
+| [access.ts](./src/lib/meetings/access.ts) | `isHost(userId, meetingId)` — compares `meetings.hostId`. `canJoinMeeting(userId, meetingId)` — returns true when the user is the host, is listed in `meeting_participants`, or has `users.isAdmin = true`. Both return false for non-existent meetings |
+| [tokens.ts](./src/lib/meetings/tokens.ts) | `issueLiveKitToken({userId, userName, roomName, isHost, ttl?})` — wraps `livekit-server-sdk` `AccessToken`. Always grants `roomJoin`, `room`, `canPublish`, `canSubscribe`, `canPublishData`; for `isHost` also grants `roomAdmin` and `roomRecord`. Default TTL `DEFAULT_TOKEN_TTL = '6h'`. Reads `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` at call time (easy to mock in tests) |
+| [meetings.ts](./src/lib/meetings/meetings.ts) | CRUD + lifecycle: `createMeeting({hostId, title, recordingEnabled})` (generates UUID roomName, inserts host participant row), `getMeeting(id)`, `getMeetingDetail(id)` (participants joined with user display names), `listMeetings({userId})` (host ∪ participant, newest first), `addParticipant(meetingId, userId, role?)` (idempotent), `markParticipantJoined` (flips `scheduled` → `live`, stamps `startedAt`), `markParticipantLeft`, `endMeeting(meetingId)` (idempotent; transitions to `ended`, stamps `endedAt`, calls `stopAllForMeeting` best-effort). Re-exports `isHost` and the `anyMeetingFilter` helper |
+| [egress-client.ts](./src/lib/meetings/egress-client.ts) | HTTP client for the meeting-worker. `startRecording(meetingId, roomName)`, `stopRecording(meetingId)` (+ alias `stopAllForMeeting`), `getRecordingStatus(meetingId)`. Signs a short-lived service JWT (`jose`, same `JWT_SECRET`, `taskhub` issuer/`taskhub-users` audience, 60 s TTL, `sub: 'next-server'`) and sends it as `Authorization: Bearer …`. 10 s fetch timeout via `AbortController`. Surfaces failures as `EgressClientError` with `status`/`body`/`cause` |
+| [recordings.ts](./src/lib/meetings/recordings.ts) | Playback side. `listRecordings(meetingId)` (all statuses, ASC by `startedAt`), `listDoneRecordings(meetingId)`, `getRecording(id)`, `getStreamPath(id)` (resolves abs/relative against `RECORDINGS_DIR`, returns null if file missing), `buildManifest(meetingId)` → `RecordingsManifest { meetingId, status: 'empty'\|'processing'\|'ready', finalMkv, roomComposite, perUserAudio[] }`. `perUserAudio` entries are enriched with `userName` via a `users` lookup and carry a stable `trackIndex` |
+| [__tests__/tokens.test.mts](./src/lib/meetings/__tests__/tokens.test.mts) | `node:test` unit tests for `issueLiveKitToken`: JWT shape, participant vs host grants, identity/name encoding, input validation, TTL constant |
+| [__tests__/access.test.mts](./src/lib/meetings/__tests__/access.test.mts) | `node:test` unit tests for `isHost` and `canJoinMeeting`. Boots an isolated tmp SQLite file via `DATABASE_PATH` override, creates meeting tables inline (legacy `db/index.ts` bootstrap only covers pre-meeting tables), covers host/listed/admin/stranger/missing scenarios |
+
+### Meetings API ([`src/app/api/meetings/`](./src/app/api/meetings/))
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/meetings` | GET | `requireAuth`; returns `{ data: Meeting[] }` from `listMeetings({userId})` |
+| `/api/meetings` | POST | `requireAuth`; body `{title: string (1..200), recordingEnabled?: boolean}`; creates meeting via `createMeeting`; responds 201 `{ data: Meeting }` |
+| `/api/meetings/[id]` | GET | `requireAuth` + `canJoinMeeting` (403). Returns `{ data: MeetingDetail }` (meeting + participants[] with `userName`). 404 if meeting missing, 400 on invalid id |
+| `/api/meetings/[id]` | DELETE | `requireAuth` + `isHost` (admins also allowed) else 403. Calls `endMeeting` which flips status to `ended` and fires best-effort `stopAllForMeeting` to the worker. Returns `{ data: Meeting }` |
+| `/api/meetings/[id]/token` | POST | `requireAuth` + `canJoinMeeting` (403). 409 if meeting already `ended`. Resolves display name from `users.firstName/lastName` (falls back to email), upserts participant row, `markParticipantJoined` (`scheduled` → `live`), returns `{ data: { token, url, roomName } }`. `url` prefers `NEXT_PUBLIC_LIVEKIT_URL` then `LIVEKIT_URL` |
+| `/api/meetings/[id]/recordings` | GET | `requireAuth` + `canJoinMeeting` (403). Returns `{ data: RecordingsManifest }` — status `processing` is returned (not an error) while egress/mux is in progress |
+| `/api/meetings/[id]/recordings/[trackId]` | GET | `requireAuth` + `canJoinMeeting` (403). Ensures the recording belongs to the given meeting (else 404). 409 if `status !== 'done'`. Streams file via `fs.createReadStream` wrapped in a `ReadableStream`. Supports HTTP `Range` (`bytes=start-end` and suffix `bytes=-N`) → 206 with `Content-Range`/`Content-Length`. Malformed range → 416. `Content-Type` derived from extension (mkv/mp4/webm/ogg/mp3/m4a/wav), fallback `application/octet-stream`. `Cache-Control: private, no-store`, RFC5987-encoded `Content-Disposition: inline; filename*` |
+| `/api/meetings/[id]/recordings/start` | POST | `requireAuth` + host-only (403 non-host, 404 missing). Proxies to the meeting-worker via `egress-client.startRecording(meetingId, roomName)`. Surfaces worker failures as HTTP 502 (`EgressClientError`). Returns `{ data: StartRecordingResponse }` |
+| `/api/meetings/[id]/recordings/stop` | POST | `requireAuth` + host-only (403 non-host, 404 missing). Idempotent proxy to `egress-client.stopRecording(meetingId)`. Worker errors → 502. Returns `{ data: StopRecordingResponse }` |
+
+Route files: [`route.ts`](./src/app/api/meetings/route.ts), [`[id]/route.ts`](./src/app/api/meetings/[id]/route.ts), [`[id]/token/route.ts`](./src/app/api/meetings/[id]/token/route.ts), [`[id]/recordings/route.ts`](./src/app/api/meetings/[id]/recordings/route.ts), [`[id]/recordings/[trackId]/route.ts`](./src/app/api/meetings/[id]/recordings/[trackId]/route.ts), [`[id]/recordings/start/route.ts`](./src/app/api/meetings/[id]/recordings/start/route.ts), [`[id]/recordings/stop/route.ts`](./src/app/api/meetings/[id]/recordings/stop/route.ts)
+
+### Meetings Frontend State
+
+| File | Description |
+|------|-------------|
+| [src/stores/meetingStore.ts](./src/stores/meetingStore.ts) | Zustand store (in-memory, no persist) with `participants: Map<sid, ParticipantInfo>`, `localTracks: {mic, cam, screen}` (LocalTrackPublication refs), `tools: {color, width, mode: 'pen'\|'eraser'}`, `annotations: StrokeEvent[]`, `recordingState: 'idle'\|'recording'\|'stopping'`. Actions: `setParticipant`, `removeParticipant`, `clearParticipants`, `setLocalTrack`, `addStroke`, `undoStroke`, `clearStrokes`, `setTool`, `setRecordingState`, `reset` (called by MeetingRoom on unmount) |
+
+### Meetings Frontend Hooks
+
+| File | Description |
+|------|-------------|
+| [src/hooks/useMeeting.ts](./src/hooks/useMeeting.ts) | React Query hooks: `useMeetings()` (list, queryKey `['meetings']`), `useMeetingDetail(id)` (queryKey `['meetings', id]`), `useCreateMeeting()` (POST `/api/meetings`, invalidates list), `useEndMeeting(id)` (DELETE `/api/meetings/[id]`), `useMeetingToken(id)` (mutation POST `/api/meetings/[id]/token` — returns `{token, url, roomName}`), `useMeetingRecordings(id)` (manifest, polls every 3s while `status === 'processing'`), `useStartRecording(id)` / `useStopRecording(id)` (POST `/api/meetings/[id]/recordings/start\|stop`, invalidate manifest) |
+| [src/hooks/useMeetingRoom.ts](./src/hooks/useMeetingRoom.ts) | Owns the `Room` lifecycle. Inputs `{token, url, isHost, enableMedia=true}`. Creates `new Room({adaptiveStream, dynacast, audioCaptureDefaults})`, connects via `room.connect(url, token, {autoSubscribe, maxRetries:3})`, on connect publishes mic+cam (`setMicrophoneEnabled`, `setCameraEnabled`). Subscribes to `RoomEvent.Connected/Disconnected/ConnectionStateChanged/ParticipantConnected/Disconnected/TrackPublished/TrackSubscribed/Unsubscribed/Muted/Unmuted/LocalTrackPublished/LocalTrackUnpublished` and projects participant + local-track snapshots into `meetingStore`. Cleanup unhooks all listeners, disconnects the room, clears the store. Returns `{room, isConnected, connectionState, error, reconnect}` |
+| [src/hooks/useLiveKitData.ts](./src/hooks/useLiveKitData.ts) | Generic typed wrapper around the LiveKit data channel scoped to a single `topic`. Inputs `(room: Room \| null, topic: string)`. Returns `{publish(data, opts?), subscribe(handler) -> unsubscribe}`. Uses module-singleton `Packr`/`Unpackr` (msgpackr) for binary serialization. Listens once to `RoomEvent.DataReceived`, filters by topic, decodes payload, fans out to every registered handler (snapshot-iterated to allow handlers to subscribe/unsubscribe synchronously). Handler set drains on unmount. `publish` calls `room.localParticipant.publishData(bytes, {reliable: true (default), topic, destinationIdentities?})` |
+| [src/hooks/useDrawingSync.ts](./src/hooks/useDrawingSync.ts) | Bridges `meetingStore.annotations` with `DrawingPayload` over data-channel topic `"draw"`. Inputs `{room, userId}`. Returns `{publishStroke, publishUndo, publishClear, nextStrokeId}`. All publish verbs apply the local mutation first (optimistic) and then `data.publish(...)`. Subscriber routes by `msg.type` into `addStroke` / `undoStroke` / `clearStrokes`, dropping echoes whose `participant.identity === String(userId)` to avoid duplicating optimistic state. `nextStrokeId` uses `crypto.randomUUID()` with timestamp+random fallback |
+
+### Meetings UI Components ([`src/components/meetings/`](./src/components/meetings/))
+
+| File | Description |
+|------|-------------|
+| [icons.tsx](./src/components/meetings/icons.tsx) | Inline SVG icons (no icon library is bundled): `MicIcon`, `MicOffIcon`, `VideoIcon`, `VideoOffIcon`, `ScreenShareIcon`, `ScreenShareOffIcon`, `PhoneOffIcon`, `RecordCircleIcon`, `StopSquareIcon`, `DownloadIcon`, `HostBadgeIcon`. All accept `SVGProps<SVGSVGElement>` and use `currentColor` |
+| [VideoTile.tsx](./src/components/meetings/VideoTile.tsx) | Single participant tile. Props `{participant, label?, highlighted?, className?}`. Attaches the participant's `Track.Source.Camera` track to a `<video>` ref via `track.attach(el)` and the microphone track to a hidden `<audio>` (skipped for the local participant). Reacts to `ParticipantEvent.TrackSubscribed/Unsubscribed/Muted/Unmuted/LocalTrackPublished/Unpublished` to re-attach. Drives an animated audio-level border via `requestAnimationFrame` reading `participant.audioLevel`. Renders camera-off placeholder + mute badge |
+| [ScreenShareView.tsx](./src/components/meetings/ScreenShareView.tsx) | Fullscreen presenter view. Props `{track: VideoTrack, participant, overlayContainerRef?, room?: Room \| null, userId?: number, className?}`. Attaches the screen-share track to `<video>` with `object-fit: contain`. Mounts `DrawingOverlay` (covering the visible video rect) inside the absolutely-positioned overlay slot, and a bottom-center `DrawingToolbar`. Both are gated on `room && typeof userId === 'number'` (when missing, the component degrades to read-only). Local `drawingEnabled` state (default off) is toggled by the toolbar; while off the canvas keeps `pointer-events: none` so the underlying video is interactive. Renders a "Демонстрация: <name>" badge |
+| [DrawingOverlay.tsx](./src/components/meetings/DrawingOverlay.tsx) | Canvas drawing layer placed over a screen-share `<video>`. Props `{videoElement: HTMLVideoElement \| null, room: Room \| null, userId: number, enabled: boolean, className?}`. Tracks the visible video rect via `ResizeObserver` (on the video, its parent, and the wrapper) plus `loadedmetadata`/`resize` events; sizes/positions an absolute `<canvas>` to that rect. Backing store sized to `rect * devicePixelRatio` for crisp HiDPI lines. Pointer handlers use `setPointerCapture` and convert clientX/Y → normalized `[0..1]` via the canvas bounding rect (clamped). Repaint scheduled with `requestAnimationFrame`; redraws all `meetingStore.annotations` plus the in-progress polyline (kept in a ref to avoid re-renders during pointermove). Final pointerup builds a stroke (id from `nextStrokeId`) and calls `publishStroke` from `useDrawingSync` |
+| [DrawingToolbar.tsx](./src/components/meetings/DrawingToolbar.tsx) | Floating pill toolbar bound to `meetingStore.tools` and `useDrawingSync`. Props `{room, userId, enabled, onToggleEnabled, className?}`. Toggle button "Рисовать"/"Рисую" (drives `enabled`). 7-color palette swatches (red/orange/amber/green/blue/violet/white) → `setTool({color})`. Width range slider 1..10 → `setTool({width})`. `Undo` button removes the last stroke whose `userId` matches local (derived from `annotations`); disabled when nothing of ours exists. `Очистить` calls `publishClear` after `window.confirm`; disabled when `annotations` empty |
+| [MeetingControls.tsx](./src/components/meetings/MeetingControls.tsx) | Bottom action bar. Props `{room, isHost, meetingId, onLeft?}`. Buttons: mic/cam/screen toggles (call `room.localParticipant.setMicrophoneEnabled\|setCameraEnabled\|setScreenShareEnabled`), leave (`room.disconnect()` + `router.back()` or `onLeft`), record start/stop (host only — uses `useStartRecording` / `useStopRecording`, drives `meetingStore.recordingState`), "Завершить для всех" (host only — `useEndMeeting` then leave). Reads enabled flags from `meetingStore.localTracks` for instant UI feedback |
+| [ParticipantsList.tsx](./src/components/meetings/ParticipantsList.tsx) | Right-sidebar list. Props `{participants?, className?}`. When `participants` not supplied, reads from `meetingStore.participants`. Each row: avatar initial, display name, host badge (`HostBadgeIcon`), `(вы)` suffix for local, mic/cam state icons computed from `participant.getTrackPublication(Track.Source.Microphone\|Camera).isMuted` |
+| [RecordingsList.tsx](./src/components/meetings/RecordingsList.tsx) | Player + track selector for a meeting's recordings. Props `{meetingId, className?}`. Pulls manifest via `useMeetingRecordings`. Renders empty/processing/error states. When ready, plays the final MKV (or mixed MP4 fallback) via `<video>`. Audio-track selector: in browsers exposing `HTMLVideoElement.audioTracks` (Chromium) toggles `audioTracks[i].enabled` to switch speaker; elsewhere falls back to a list of per-user `<audio>` elements pointed at the OGG egress URLs. Includes a "Скачать MKV" link |
+| [MeetingRoom.tsx](./src/components/meetings/MeetingRoom.tsx) | Top-level meeting page composition. Props `{meetingId, token, url, isHost, userId, onLeft?}`. Calls `useMeetingRoom`, renders Loading/Reconnecting/Error states with a "Повторить попытку" button wired to `reconnect()`. Layout: when any participant has a `Track.Source.ScreenShare` track subscribed, the main pane shows `ScreenShareView` (forwarding `room` and `userId` to enable drawing) with a horizontal strip of small `VideoTile`s; otherwise a responsive grid of tiles. Right sidebar `ParticipantsList`, bottom `MeetingControls`. Calls `meetingStore.reset()` on unmount |
+
+### Meetings Pages ([`src/app/(dashboard)/meetings/`](./src/app/(dashboard)/meetings/))
+
+Route protection: `src/middleware.ts` includes `/meetings` in `PROTECTED_PREFIXES` so unauthenticated visits are redirected to `/login`. Per-meeting access is enforced at the API layer (`canJoinMeeting` in the token + detail + recordings endpoints).
+
+| File | Description |
+|------|-------------|
+| [page.tsx](./src/app/(dashboard)/meetings/page.tsx) | `/meetings` — meetings list + create. Client Component. Uses `useMeetings()` for the list (grid of cards: title, createdAt, status badge, recording dot, Войти / Открыть записи). Header button opens an inline modal `CreateMeetingDialog` (`InputField` title 1..200 chars, recording-enabled checkbox) that calls `useCreateMeeting` and navigates to `/meetings/[id]` on success. Uses `EmptyState` when the list is empty, `Skeleton` while loading, and toast messages via `useToast` |
+| [[id]/page.tsx](./src/app/(dashboard)/meetings/[id]/page.tsx) | `/meetings/[id]` — room page. Client Component. Parses the id, resolves the current user via `/api/auth/me`, loads meeting detail via `useMeetingDetail`, computes `isHost = detail.hostId === user.userId`, mints a LiveKit token once per page visit through `useMeetingToken` (handles 403/409 errors returned by the backend's `canJoinMeeting` check). Bails to a "Требуется вход" pane when `/api/auth/me` returned `null`. Renders `<MeetingRoom meetingId token url isHost userId={user.userId} onLeft=() => push('/meetings') />`. Shows loading/error panes while any of the three fetches are pending |
+| [[id]/recordings/page.tsx](./src/app/(dashboard)/meetings/[id]/recordings/page.tsx) | `/meetings/[id]/recordings` — playback page. Client Component. Back link to `/meetings`, secondary button to return to the live room, then `<RecordingsList meetingId />` (polls manifest, auto-switches from "Обработка записи…" to the MKV player once post-mux finishes) |
+
+### Meetings Navigation
+
+- [src/components/layout/Sidebar.tsx](./src/components/layout/Sidebar.tsx) — `MeetingsIcon` (inline SVG, camera-with-arrow glyph) + `{href: '/meetings', label: 'Встречи'}` entry in `NAV_ITEMS`. `NavItem` highlights by `pathname` prefix match.
+- [src/middleware.ts](./src/middleware.ts) — `/meetings` added to `PROTECTED_PREFIXES`.

@@ -4,28 +4,27 @@ import { tasks, portals, taskChecklistItems } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { toggleChecklistItem, deleteChecklistItem } from '@/lib/bitrix/checklist';
+import { isLocalPortal } from '@/lib/portals/local';
+import { hasPortalAccess } from '@/lib/portals/access';
 
 type RouteContext = { params: Promise<{ id: string; itemId: string }> };
 
 /**
- * Get task and checklist item with ownership check.
+ * Get task + portal info (no ownership filter) and checklist item.
+ * Ownership / access checks are handled by callers based on portal type.
  */
-function getTaskAndItem(taskId: number, itemId: number, userId: number) {
+function getTaskAndItemForAccess(taskId: number, itemId: number) {
   const task = db
     .select({
       id: tasks.id,
       portalId: tasks.portalId,
       bitrixTaskId: tasks.bitrixTaskId,
       portalUserId: portals.userId,
+      portalMemberId: portals.memberId,
     })
     .from(tasks)
     .innerJoin(portals, eq(tasks.portalId, portals.id))
-    .where(
-      and(
-        eq(tasks.id, taskId),
-        eq(portals.userId, userId)
-      )
-    )
+    .where(eq(tasks.id, taskId))
     .get();
 
   if (!task) return null;
@@ -78,7 +77,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const result = getTaskAndItem(taskId, checklistItemId, auth.user.userId);
+    const result = getTaskAndItemForAccess(taskId, checklistItemId);
     if (!result) {
       return NextResponse.json(
         { error: 'Not Found', message: 'Task or checklist item not found' },
@@ -87,6 +86,30 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     const { task, item } = result;
+
+    // ===== LOCAL PORTAL BRANCH =====
+    if (isLocalPortal({ memberId: task.portalMemberId })) {
+      if (!auth.user.isAdmin && !hasPortalAccess(auth.user.userId, task.portalId)) {
+        return NextResponse.json(
+          { error: 'Not Found', message: 'Task or checklist item not found' },
+          { status: 404 }
+        );
+      }
+      db.update(taskChecklistItems)
+        .set({ isComplete })
+        .where(eq(taskChecklistItems.id, checklistItemId))
+        .run();
+      return NextResponse.json({ data: { ...item, isComplete } });
+    }
+    // ===== END LOCAL PORTAL BRANCH =====
+
+    // Ownership check for bitrix portal
+    if (task.portalUserId !== auth.user.userId) {
+      return NextResponse.json(
+        { error: 'Not Found', message: 'Task or checklist item not found' },
+        { status: 404 }
+      );
+    }
 
     if (!item.bitrixItemId) {
       return NextResponse.json(
@@ -143,7 +166,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const result = getTaskAndItem(taskId, checklistItemId, auth.user.userId);
+    const result = getTaskAndItemForAccess(taskId, checklistItemId);
     if (!result) {
       return NextResponse.json(
         { error: 'Not Found', message: 'Task or checklist item not found' },
@@ -152,6 +175,31 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     }
 
     const { task, item } = result;
+
+    // ===== LOCAL PORTAL BRANCH =====
+    if (isLocalPortal({ memberId: task.portalMemberId })) {
+      if (!auth.user.isAdmin && !hasPortalAccess(auth.user.userId, task.portalId)) {
+        return NextResponse.json(
+          { error: 'Not Found', message: 'Task or checklist item not found' },
+          { status: 404 }
+        );
+      }
+      db.delete(taskChecklistItems)
+        .where(eq(taskChecklistItems.id, checklistItemId))
+        .run();
+      return NextResponse.json({
+        data: { message: 'Checklist item deleted' },
+      });
+    }
+    // ===== END LOCAL PORTAL BRANCH =====
+
+    // Ownership check for bitrix portal
+    if (task.portalUserId !== auth.user.userId) {
+      return NextResponse.json(
+        { error: 'Not Found', message: 'Task or checklist item not found' },
+        { status: 404 }
+      );
+    }
 
     if (item.bitrixItemId) {
       // Delete on Bitrix24

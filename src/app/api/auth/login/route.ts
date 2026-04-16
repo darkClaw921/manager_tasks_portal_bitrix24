@@ -69,10 +69,11 @@ export async function POST(request: NextRequest) {
     });
 
     // Set HttpOnly cookie
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+    const forwardedProto = request.headers.get('x-forwarded-proto');
+    const isHttps = forwardedProto === 'https' || request.nextUrl.protocol === 'https:';
     response.cookies.set('token', token, {
       httpOnly: true,
-      secure: appUrl.startsWith('https://'),
+      secure: isHttps,
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: '/',

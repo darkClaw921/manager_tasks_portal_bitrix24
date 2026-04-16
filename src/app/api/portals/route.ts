@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     if (isAuthError(auth)) return auth;
 
     const body = await request.json();
-    const { domain, clientId, clientSecret } = body;
+    const { domain, clientId, clientSecret, name, color } = body;
 
     if (!domain || typeof domain !== 'string') {
       return NextResponse.json(
@@ -120,8 +120,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate OAuth URL with per-portal credentials
-    const authUrl = await getAuthUrl(cleanDomain, auth.user.userId, clientId.trim(), clientSecret.trim());
+    // Validate optional color (hex string like #RRGGBB)
+    const cleanColor = typeof color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(color.trim())
+      ? color.trim()
+      : undefined;
+    const cleanName = typeof name === 'string' && name.trim().length > 0
+      ? name.trim()
+      : undefined;
+
+    // Generate OAuth URL with per-portal credentials and portal metadata
+    const authUrl = await getAuthUrl(
+      cleanDomain,
+      auth.user.userId,
+      clientId.trim(),
+      clientSecret.trim(),
+      cleanName,
+      cleanColor,
+    );
 
     return NextResponse.json({
       data: { authUrl },

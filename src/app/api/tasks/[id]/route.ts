@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { tasks, portals, taskComments, taskChecklistItems, taskFiles } from '@/lib/db/schema';
+import { tasks, portals, taskComments, taskChecklistItems, taskFiles, users } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { createBitrix24Client } from '@/lib/bitrix/client';
 import { mapBitrixStatus } from '@/lib/bitrix/tasks';
+import { isLocalPortal } from '@/lib/portals/local';
+import { hasPortalAccess } from '@/lib/portals/access';
+import { buildTaskAccessFilter } from '@/lib/portals/task-filter';
 import type { BitrixTask } from '@/types';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -52,6 +55,7 @@ function getTaskWithOwnership(taskId: number, userId: number) {
       portalColor: portals.color,
       portalDomain: portals.domain,
       portalUserId: portals.userId,
+      portalMemberId: portals.memberId,
     })
     .from(tasks)
     .innerJoin(portals, eq(tasks.portalId, portals.id))
@@ -61,6 +65,58 @@ function getTaskWithOwnership(taskId: number, userId: number) {
         eq(portals.userId, userId)
       )
     )
+    .get();
+}
+
+/**
+ * Get a task with portal join (no ownership filter).
+ * Used to detect local portal before deciding access strategy.
+ * Returns the same shape as getTaskWithOwnership.
+ */
+function getTaskForAccess(taskId: number) {
+  return db
+    .select({
+      id: tasks.id,
+      portalId: tasks.portalId,
+      bitrixTaskId: tasks.bitrixTaskId,
+      title: tasks.title,
+      description: tasks.description,
+      descriptionHtml: tasks.descriptionHtml,
+      status: tasks.status,
+      priority: tasks.priority,
+      mark: tasks.mark,
+      responsibleId: tasks.responsibleId,
+      responsibleName: tasks.responsibleName,
+      responsiblePhoto: tasks.responsiblePhoto,
+      creatorId: tasks.creatorId,
+      creatorName: tasks.creatorName,
+      creatorPhoto: tasks.creatorPhoto,
+      groupId: tasks.groupId,
+      stageId: tasks.stageId,
+      deadline: tasks.deadline,
+      startDatePlan: tasks.startDatePlan,
+      endDatePlan: tasks.endDatePlan,
+      createdDate: tasks.createdDate,
+      changedDate: tasks.changedDate,
+      closedDate: tasks.closedDate,
+      timeEstimate: tasks.timeEstimate,
+      timeSpent: tasks.timeSpent,
+      tags: tasks.tags,
+      accomplices: tasks.accomplices,
+      auditors: tasks.auditors,
+      bitrixUrl: tasks.bitrixUrl,
+      excludeFromAi: tasks.excludeFromAi,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+      portalName: portals.name,
+      portalColor: portals.color,
+      portalDomain: portals.domain,
+      portalUserId: portals.userId,
+      portalMemberId: portals.memberId,
+    })
+    .from(tasks)
+    .innerJoin(portals, eq(tasks.portalId, portals.id))
+    .where(eq(tasks.id, taskId))
     .get();
 }
 
@@ -77,7 +133,11 @@ function parseJsonField(value: string | null): unknown {
  * GET /api/tasks/[id]
  *
  * Get a single task with optional includes (comments, checklist, files).
- * Query params: ?include=comments,checklist,files
+ * Access rules:
+ *  - admin: any task
+ *  - portal owner (portals.userId === auth.userId): any of its tasks
+ *  - user with user_portal_access + matching role visibility flags (via
+ *    buildTaskAccessFilter): task only if the access filter selects it.
  */
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
@@ -93,7 +153,75 @@ export async function GET(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const task = getTaskWithOwnership(taskId, auth.user.userId);
+    let task = getTaskWithOwnership(taskId, auth.user.userId);
+
+    if (!task) {
+      if (auth.user.isAdmin) {
+        task = getTaskForAccess(taskId) || undefined;
+      } else {
+        // Local portal fast-path: any user with portal access can view local tasks
+        // (mirrors PATCH branch).
+        const probe = getTaskForAccess(taskId);
+        if (
+          probe &&
+          isLocalPortal({ memberId: probe.portalMemberId }) &&
+          hasPortalAccess(auth.user.userId, probe.portalId)
+        ) {
+          task = probe;
+        }
+      }
+    }
+
+    if (!task && !auth.user.isAdmin) {
+      const accessFilter = buildTaskAccessFilter(auth.user.userId);
+        if (accessFilter) {
+          task = db
+            .select({
+              id: tasks.id,
+              portalId: tasks.portalId,
+              bitrixTaskId: tasks.bitrixTaskId,
+              title: tasks.title,
+              description: tasks.description,
+              descriptionHtml: tasks.descriptionHtml,
+              status: tasks.status,
+              priority: tasks.priority,
+              mark: tasks.mark,
+              responsibleId: tasks.responsibleId,
+              responsibleName: tasks.responsibleName,
+              responsiblePhoto: tasks.responsiblePhoto,
+              creatorId: tasks.creatorId,
+              creatorName: tasks.creatorName,
+              creatorPhoto: tasks.creatorPhoto,
+              groupId: tasks.groupId,
+              stageId: tasks.stageId,
+              deadline: tasks.deadline,
+              startDatePlan: tasks.startDatePlan,
+              endDatePlan: tasks.endDatePlan,
+              createdDate: tasks.createdDate,
+              changedDate: tasks.changedDate,
+              closedDate: tasks.closedDate,
+              timeEstimate: tasks.timeEstimate,
+              timeSpent: tasks.timeSpent,
+              tags: tasks.tags,
+              accomplices: tasks.accomplices,
+              auditors: tasks.auditors,
+              bitrixUrl: tasks.bitrixUrl,
+              excludeFromAi: tasks.excludeFromAi,
+              createdAt: tasks.createdAt,
+              updatedAt: tasks.updatedAt,
+              portalName: portals.name,
+              portalColor: portals.color,
+              portalDomain: portals.domain,
+              portalUserId: portals.userId,
+              portalMemberId: portals.memberId,
+            })
+            .from(tasks)
+            .innerJoin(portals, eq(tasks.portalId, portals.id))
+            .where(and(eq(tasks.id, taskId), accessFilter))
+            .get();
+      }
+    }
+
     if (!task) {
       return NextResponse.json(
         { error: 'Not Found', message: 'Task not found' },
@@ -113,6 +241,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       excludeFromAi: !!task.excludeFromAi,
     };
     delete result.portalUserId;
+    delete result.portalMemberId;
 
     if (includes.includes('comments')) {
       const rawComments = db
@@ -173,8 +302,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const task = getTaskWithOwnership(taskId, auth.user.userId);
-    if (!task) {
+    // Look up task with portal info (no ownership filter yet) to detect local
+    const taskAccess = getTaskForAccess(taskId);
+    if (!taskAccess) {
       return NextResponse.json(
         { error: 'Not Found', message: 'Task not found' },
         { status: 404 }
@@ -183,6 +313,94 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const body = await request.json();
     const { title, description, priority, deadline, status, responsibleId, tags, excludeFromAi, accomplices, auditors } = body;
+
+    // ===== LOCAL PORTAL BRANCH =====
+    if (isLocalPortal({ memberId: taskAccess.portalMemberId })) {
+      // Access check: admin OR has portal access
+      if (!auth.user.isAdmin && !hasPortalAccess(auth.user.userId, taskAccess.portalId)) {
+        return NextResponse.json(
+          { error: 'Not Found', message: 'Task not found' },
+          { status: 404 }
+        );
+      }
+
+      const localUpdates: Record<string, unknown> = {};
+      const nowIsoL = new Date().toISOString();
+
+      if (title !== undefined) localUpdates.title = title;
+      if (description !== undefined) localUpdates.description = description;
+      if (priority !== undefined) localUpdates.priority = priority;
+      if (deadline !== undefined) localUpdates.deadline = deadline || null;
+      if (status !== undefined) localUpdates.status = mapBitrixStatus(status);
+      if (tags !== undefined) localUpdates.tags = JSON.stringify(tags);
+      if (accomplices !== undefined) localUpdates.accomplices = JSON.stringify(accomplices);
+      if (auditors !== undefined) localUpdates.auditors = JSON.stringify(auditors);
+      if (excludeFromAi !== undefined) localUpdates.excludeFromAi = excludeFromAi ? 1 : 0;
+
+      // Re-snapshot responsibleName when responsibleId changes
+      if (responsibleId !== undefined) {
+        const coerced = responsibleId !== null ? String(responsibleId) : null;
+        localUpdates.responsibleId = coerced;
+        let respName: string | null = null;
+        if (coerced) {
+          const respIdNum = parseInt(coerced, 10);
+          if (!isNaN(respIdNum)) {
+            const respRow = db
+              .select({ firstName: users.firstName, lastName: users.lastName })
+              .from(users)
+              .where(eq(users.id, respIdNum))
+              .get();
+            if (respRow) {
+              respName = `${respRow.firstName} ${respRow.lastName}`.trim();
+            }
+          }
+        }
+        localUpdates.responsibleName = respName;
+      }
+
+      if (Object.keys(localUpdates).length === 0) {
+        return NextResponse.json(
+          { error: 'Validation', message: 'No fields to update' },
+          { status: 400 }
+        );
+      }
+
+      localUpdates.changedDate = nowIsoL;
+      localUpdates.updatedAt = nowIsoL;
+
+      db.update(tasks)
+        .set(localUpdates)
+        .where(eq(tasks.id, taskId))
+        .run();
+
+      const updatedL = getTaskForAccess(taskId);
+      if (!updatedL) {
+        return NextResponse.json(
+          { error: 'Internal', message: 'Task updated but could not be retrieved' },
+          { status: 500 }
+        );
+      }
+      const resultL: Record<string, unknown> = {
+        ...updatedL,
+        tags: parseJsonField(updatedL.tags),
+        accomplices: parseJsonField(updatedL.accomplices),
+        auditors: parseJsonField(updatedL.auditors),
+        excludeFromAi: !!updatedL.excludeFromAi,
+      };
+      delete resultL.portalUserId;
+      delete resultL.portalMemberId;
+
+      return NextResponse.json({ data: resultL });
+    }
+    // ===== END LOCAL PORTAL BRANCH =====
+
+    const task = getTaskWithOwnership(taskId, auth.user.userId);
+    if (!task) {
+      return NextResponse.json(
+        { error: 'Not Found', message: 'Task not found' },
+        { status: 404 }
+      );
+    }
 
     // Build Bitrix24 fields (only fields that sync to Bitrix24)
     const fields: Record<string, unknown> = {};
@@ -274,6 +492,34 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
         { status: 400 }
       );
     }
+
+    // Look up task with portal info (no ownership filter) to detect local
+    const taskAccess = getTaskForAccess(taskId);
+    if (!taskAccess) {
+      return NextResponse.json(
+        { error: 'Not Found', message: 'Task not found' },
+        { status: 404 }
+      );
+    }
+
+    // ===== LOCAL PORTAL BRANCH =====
+    if (isLocalPortal({ memberId: taskAccess.portalMemberId })) {
+      if (!auth.user.isAdmin && !hasPortalAccess(auth.user.userId, taskAccess.portalId)) {
+        return NextResponse.json(
+          { error: 'Not Found', message: 'Task not found' },
+          { status: 404 }
+        );
+      }
+
+      db.delete(tasks)
+        .where(eq(tasks.id, taskId))
+        .run();
+
+      return NextResponse.json({
+        data: { message: 'Task deleted successfully' },
+      });
+    }
+    // ===== END LOCAL PORTAL BRANCH =====
 
     const task = getTaskWithOwnership(taskId, auth.user.userId);
     if (!task) {

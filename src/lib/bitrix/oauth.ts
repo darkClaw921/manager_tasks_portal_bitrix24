@@ -22,9 +22,11 @@ export async function getAuthUrl(
   userId: number,
   clientId: string,
   clientSecret: string,
+  name?: string,
+  color?: string,
 ): Promise<string> {
-  // Create signed state with userId + credentials for CSRF protection
-  const state = await new SignJWT({ userId, clientId, clientSecret })
+  // Create signed state with userId + credentials + portal metadata for CSRF protection
+  const state = await new SignJWT({ userId, clientId, clientSecret, name, color })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('10m') // State valid for 10 minutes
@@ -55,14 +57,16 @@ export async function getAuthUrl(
  */
 export async function verifyOAuthState(
   state: string,
-): Promise<{ userId: number; clientId: string; clientSecret: string } | null> {
+): Promise<{ userId: number; clientId: string; clientSecret: string; name?: string; color?: string } | null> {
   try {
     const { payload } = await jwtVerify(state, STATE_SECRET);
     const userId = payload.userId as number;
     const clientId = payload.clientId as string;
     const clientSecret = payload.clientSecret as string;
+    const name = payload.name as string | undefined;
+    const color = payload.color as string | undefined;
     if (!userId || !clientId || !clientSecret) return null;
-    return { userId, clientId, clientSecret };
+    return { userId, clientId, clientSecret, name, color };
   } catch {
     return null;
   }

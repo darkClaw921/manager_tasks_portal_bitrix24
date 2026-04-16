@@ -1,3 +1,19 @@
+# ============================================================
+# TaskHub — Full stack (app + Meetings)
+# ------------------------------------------------------------
+# Services:
+#   taskhub         Next.js + cron
+#   livekit         LiveKit SFU (signaling + WebRTC)
+#   meeting-worker  Fastify: LiveKit webhooks + egress + ffmpeg muxer
+#
+# Shared named volume `taskhub-data` holds:
+#   /app/data/taskhub.db          (SQLite WAL, shared writers)
+#   /app/data/recordings/         (per-user OGG + mixed MP4 + final MKV)
+#
+# Run:
+#   docker compose --env-file .env.production up --build
+# ============================================================
+
 services:
   taskhub:
     build:
@@ -13,14 +29,65 @@ services:
       - NODE_ENV=production
       - DATABASE_PATH=/app/data/taskhub.db
       - ENABLE_CRON=true
+      - LIVEKIT_URL=ws://livekit:7880
+      - MEETING_WORKER_URL=http://meeting-worker:3100
     volumes:
       - taskhub-data:/app/data
+    depends_on:
+      livekit:
+        condition: service_started
+      meeting-worker:
+        condition: service_started
     healthcheck:
       test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --spider http://localhost:${PORT:-3000}/api/auth/me"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: taskhub-livekit
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./infra/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"                    # WebSocket / HTTP signaling
+      - "7881:7881"                    # TCP fallback
+      - "50000-50100:50000-50100/udp"  # WebRTC media
+    # NOTE: LiveKit reads keys + webhook.api_key from infra/livekit.yaml only.
+    # Keep that file in sync with LIVEKIT_API_KEY / LIVEKIT_API_SECRET from .env.
+    # (scripts/deploy-dev.sh prints the warning to do this on generation.)
+
+  meeting-worker:
+    build:
+      context: ./meeting-server
+      dockerfile: Dockerfile
+    container_name: taskhub-meeting-worker
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      NODE_ENV: production
+      PORT: "3100"
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      DB_PATH: /app/data/taskhub.db
+      RECORDINGS_DIR: /app/data/recordings
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      - taskhub-data:/app/data
+    depends_on:
+      livekit:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   taskhub-data:

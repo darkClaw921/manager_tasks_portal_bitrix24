@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { UserTable } from '@/components/admin/UserTable';
 import { CreateUserForm } from '@/components/admin/CreateUserForm';
 import { UserDetailModal } from '@/components/admin/UserDetailModal';
+import { ChangePasswordModal } from '@/components/admin/ChangePasswordModal';
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '@/hooks/useUsers';
 import type { AdminUser } from '@/hooks/useUsers';
 
@@ -17,6 +18,7 @@ export default function AdminUsersPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<number>(0);
   const [detailUser, setDetailUser] = useState<AdminUser | null>(null);
+  const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Get current user ID from /api/auth/me on mount
@@ -57,6 +59,11 @@ export default function AdminUsersPage() {
     } catch (err) {
       showMsg('error', err instanceof Error ? err.message : 'Не удалось обновить пользователя');
     }
+  };
+
+  const handleChangePassword = async (userId: number, password: string) => {
+    await updateUser.mutateAsync({ id: userId, password });
+    showMsg('success', 'Пароль обновлён');
   };
 
   const handleDelete = async (userId: number) => {
@@ -149,6 +156,7 @@ export default function AdminUsersPage() {
           onEdit={handleEdit}
           onDelete={handleDelete}
           onViewDetails={(user) => setDetailUser(user)}
+          onChangePassword={(user) => setPasswordUser(user)}
           isDeleting={deleteUser.isPending}
         />
       )}
@@ -165,6 +173,16 @@ export default function AdminUsersPage() {
       {/* User detail modal */}
       {detailUser && (
         <UserDetailModal user={detailUser} onClose={() => setDetailUser(null)} />
+      )}
+
+      {/* Change password modal */}
+      {passwordUser && (
+        <ChangePasswordModal
+          user={passwordUser}
+          onClose={() => setPasswordUser(null)}
+          onSubmit={handleChangePassword}
+          isLoading={updateUser.isPending}
+        />
       )}
     </div>
   );

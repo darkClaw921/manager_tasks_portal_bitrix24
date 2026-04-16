@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { userId, clientId, clientSecret } = stateData;
+    const { userId, clientId, clientSecret, name: portalName, color: portalColor } = stateData;
 
     // Exchange authorization code for tokens using per-portal credentials
     let tokenData;
@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
       .get();
 
     if (existingPortal) {
-      // Update existing portal with new tokens and credentials (encrypted)
+      // Update existing portal with new tokens and credentials (encrypted).
+      // Also update name/color if user supplied them during reconnect.
       db.update(portals)
         .set({
           domain,
@@ -88,6 +89,8 @@ export async function GET(request: NextRequest) {
           clientEndpoint,
           isActive: true,
           updatedAt: now,
+          ...(portalName ? { name: portalName } : {}),
+          ...(portalColor ? { color: portalColor } : {}),
         })
         .where(eq(portals.id, existingPortal.id))
         .run();
@@ -123,13 +126,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Create new portal (tokens and credentials encrypted)
+    // Create new portal (tokens and credentials encrypted).
+    // Use user-supplied name/color from OAuth state; fall back to defaults.
     const result = db
       .insert(portals)
       .values({
         userId,
         domain,
-        name: domain.split('.')[0] || domain, // Use first part of domain as default name
+        name: portalName || domain.split('.')[0] || domain,
         memberId,
         clientId: encrypt(clientId),
         clientSecret: encrypt(clientSecret),
@@ -139,6 +143,7 @@ export async function GET(request: NextRequest) {
         tokenExpiresAt,
         createdAt: now,
         updatedAt: now,
+        ...(portalColor ? { color: portalColor } : {}),
       })
       .run();
 

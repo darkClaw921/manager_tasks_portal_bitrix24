@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { tasks, taskComments } from '@/lib/db/schema';
+import { tasks, taskComments, portals, users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { addComment } from '@/lib/bitrix/comments';
 import { hasPortalAccess } from '@/lib/portals/access';
 import { getBitrixUserIdForUser, getAllMappingsForPortal } from '@/lib/portals/mappings';
+import { isLocalPortal } from '@/lib/portals/local';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -40,14 +41,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Get task by ID (without user ownership check)
+    // Get task by ID with portal memberId for local detection
     const task = db
       .select({
         id: tasks.id,
         portalId: tasks.portalId,
         bitrixTaskId: tasks.bitrixTaskId,
+        portalMemberId: portals.memberId,
       })
       .from(tasks)
+      .innerJoin(portals, eq(tasks.portalId, portals.id))
       .where(eq(tasks.id, taskId))
       .get();
 
@@ -65,6 +68,43 @@ export async function POST(request: NextRequest, context: RouteContext) {
         { status: 404 }
       );
     }
+
+    // ===== LOCAL PORTAL BRANCH =====
+    if (isLocalPortal({ memberId: task.portalMemberId })) {
+      const nowL = new Date().toISOString();
+      // Snapshot author name from app users table
+      const authorRow = db
+        .select({ firstName: users.firstName, lastName: users.lastName })
+        .from(users)
+        .where(eq(users.id, auth.user.userId))
+        .get();
+      const authorNameL = authorRow
+        ? `${authorRow.firstName} ${authorRow.lastName}`.trim()
+        : 'Вы';
+
+      const syntheticCommentId = -Date.now();
+      const insertRes = db
+        .insert(taskComments)
+        .values({
+          taskId,
+          bitrixCommentId: syntheticCommentId,
+          authorId: String(auth.user.userId),
+          authorName: authorNameL,
+          postMessage: message.trim(),
+          postDate: nowL,
+          createdAt: nowL,
+        })
+        .run();
+
+      const newCommentL = db
+        .select()
+        .from(taskComments)
+        .where(eq(taskComments.id, Number(insertRes.lastInsertRowid)))
+        .get();
+
+      return NextResponse.json({ data: newCommentL }, { status: 201 });
+    }
+    // ===== END LOCAL PORTAL BRANCH =====
 
     // Look up the current user's Bitrix24 ID and name for this portal
     const bitrixUserId = getBitrixUserIdForUser(auth.user.userId, task.portalId);

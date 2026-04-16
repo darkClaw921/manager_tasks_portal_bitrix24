@@ -10,6 +10,7 @@ import { mapBitrixChecklistItemToLocal } from './checklist';
 import { mapBitrixFileToLocal, fetchFilesByDiskIds } from './files';
 import { fetchStages } from './stages';
 import { getMappedBitrixUserIds } from '@/lib/portals/mappings';
+import { isLocalPortalId } from '@/lib/portals/local';
 import type { BitrixChecklistItem, BitrixTask } from '@/types';
 
 interface TaskEntry {
@@ -268,6 +269,12 @@ export async function fullSync(portalId: number): Promise<{
   tasksCount: number;
   errors: string[];
 }> {
+  // Local portal has no Bitrix24 connection — skip all network calls.
+  if (await isLocalPortalId(portalId)) {
+    console.log(`[sync] Portal ${portalId} is local, skipping full sync`);
+    return { tasksCount: 0, errors: [] };
+  }
+
   const errors: string[] = [];
   const domain = getPortalDomain(portalId);
 
@@ -343,6 +350,12 @@ export async function syncSingleTask(
   portalId: number,
   bitrixTaskId: number
 ): Promise<number | null> {
+  // Local portal has no Bitrix24 connection — skip all network calls.
+  if (await isLocalPortalId(portalId)) {
+    console.log(`[sync] Portal ${portalId} is local, skipping syncSingleTask(${bitrixTaskId})`);
+    return null;
+  }
+
   const domain = getPortalDomain(portalId);
   if (!domain) return null;
 

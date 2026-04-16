@@ -346,6 +346,23 @@ function SettingsContent() {
   // Find the portal
   const portal = portals?.find((p) => p.id === portalId);
 
+  // Local portal — hide bitrix-specific tabs
+  const isLocal = portal?.domain === 'local' || portal?.memberId === '__local__';
+  const visibleTabs = useMemo(
+    () => (isLocal ? TABS.filter((t) => t.key !== 'mappings' && t.key !== 'stages') : TABS),
+    [isLocal]
+  );
+
+  // Redirect away from hidden tabs when visiting a local portal
+  useEffect(() => {
+    if (!isLocal) return;
+    if (activeTab === 'mappings' || activeTab === 'stages') {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', 'general');
+      router.replace(`/portals/${portalId}/settings?${params.toString()}`);
+    }
+  }, [isLocal, activeTab, portalId, router, searchParams]);
+
   if (authLoading) {
     return (
       <div className="max-w-5xl mx-auto">
@@ -428,13 +445,18 @@ function SettingsContent() {
           <Badge variant={portal.isActive ? 'success' : 'danger'} size="sm" className="ml-2">
             {portal.isActive ? 'Активен' : 'Неактивен'}
           </Badge>
+          {isLocal && (
+            <Badge variant="primary" size="sm" className="ml-1">
+              Локальная
+            </Badge>
+          )}
         </div>
       </div>
 
       {/* Tabs */}
       <div className="border-b border-border mb-6">
         <div className="flex gap-0 -mb-px overflow-x-auto">
-          {TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => handleTabChange(tab.key)}
@@ -460,10 +482,10 @@ function SettingsContent() {
         {activeTab === 'users' && (
           <UsersTabContent portalId={portalId} />
         )}
-        {activeTab === 'mappings' && (
+        {activeTab === 'mappings' && !isLocal && (
           <MappingsTabContent portalId={portalId} />
         )}
-        {activeTab === 'stages' && (
+        {activeTab === 'stages' && !isLocal && (
           <StageSettings portalId={portalId} />
         )}
       </div>

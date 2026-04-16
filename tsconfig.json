@@ -38,6 +38,7 @@
   ],
   "exclude": [
     "node_modules",
-    "service-worker"
+    "service-worker",
+    "meeting-server"
   ]
 }
