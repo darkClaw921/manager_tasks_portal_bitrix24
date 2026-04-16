@@ -326,6 +326,18 @@ export const meetingRecordings = sqliteTable('meeting_recordings', {
   uniqueIndex('meeting_recordings_egress_id_unique').on(table.egressId),
 ]);
 
+// ==================== MEETING GUEST INVITE TOKENS ====================
+export const meetingGuestTokens = sqliteTable('meeting_guest_tokens', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  meetingId: integer('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  token: text('token').notNull(),
+  createdBy: integer('created_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  revokedAt: text('revoked_at'),
+}, (table) => [
+  uniqueIndex('meeting_guest_tokens_token_unique').on(table.token),
+]);
+
 // ==================== MEETING ANNOTATIONS ====================
 export const meetingAnnotations = sqliteTable('meeting_annotations', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -404,3 +416,6 @@ export type NewMeetingRecording = typeof meetingRecordings.$inferInsert;
 
 export type MeetingAnnotation = typeof meetingAnnotations.$inferSelect;
 export type NewMeetingAnnotation = typeof meetingAnnotations.$inferInsert;
+
+export type MeetingGuestToken = typeof meetingGuestTokens.$inferSelect;
+export type NewMeetingGuestToken = typeof meetingGuestTokens.$inferInsert;

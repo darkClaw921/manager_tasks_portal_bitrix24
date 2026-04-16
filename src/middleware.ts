@@ -17,6 +17,15 @@ const PROTECTED_PREFIXES = [
 ];
 
 /**
+ * Explicit public exceptions. Guests joining a meeting via invite link
+ * reach `/join/<token>` without an account — keep it outside the
+ * protected-prefix check.
+ */
+const PUBLIC_EXCEPTIONS = [
+  '/join/',
+];
+
+/**
  * Auth pages - authenticated users are redirected to /dashboard.
  */
 const AUTH_PAGES = ['/login'];
@@ -72,9 +81,12 @@ export async function middleware(request: NextRequest) {
   const isAuthenticated = token ? await verifyJWT(token) : false;
 
   // Protected routes: redirect to login if not authenticated
-  const isProtectedRoute = PROTECTED_PREFIXES.some((prefix) =>
+  const isPublicException = PUBLIC_EXCEPTIONS.some((prefix) =>
     pathname.startsWith(prefix)
   );
+  const isProtectedRoute =
+    !isPublicException &&
+    PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 
   if (isProtectedRoute && !isAuthenticated) {
     const loginUrl = new URL('/login', request.url);

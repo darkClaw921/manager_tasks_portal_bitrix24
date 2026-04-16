@@ -111,6 +111,73 @@ async function postStopRecording(id: number): Promise<void> {
   if (!response.ok) await throwFromResponse(response, 'Failed to stop recording');
 }
 
+export interface InvitableUser {
+  id: number;
+  firstName: string;
+  lastName: string;
+}
+
+async function fetchInvitableUsers(): Promise<InvitableUser[]> {
+  const response = await fetch('/api/meetings/invitable-users');
+  if (!response.ok) await throwFromResponse(response, 'Failed to load users');
+  const json = await response.json();
+  return json.data as InvitableUser[];
+}
+
+async function postInviteParticipants(
+  meetingId: number,
+  userIds: number[]
+): Promise<void> {
+  const response = await fetch(`/api/meetings/${meetingId}/participants`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userIds }),
+  });
+  if (!response.ok) await throwFromResponse(response, 'Failed to invite users');
+}
+
+async function deleteRemoveParticipant(
+  meetingId: number,
+  userId: number
+): Promise<void> {
+  const response = await fetch(
+    `/api/meetings/${meetingId}/participants/${userId}`,
+    { method: 'DELETE' }
+  );
+  if (!response.ok) await throwFromResponse(response, 'Failed to remove participant');
+}
+
+export interface InviteLink {
+  token: string;
+  url: string;
+  createdAt: string;
+}
+
+async function fetchInviteLinks(meetingId: number): Promise<InviteLink[]> {
+  const response = await fetch(`/api/meetings/${meetingId}/invite-links`);
+  if (!response.ok) await throwFromResponse(response, 'Failed to load invite links');
+  const json = await response.json();
+  return json.data as InviteLink[];
+}
+
+async function postCreateInviteLink(meetingId: number): Promise<InviteLink> {
+  const response = await fetch(`/api/meetings/${meetingId}/invite-links`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) await throwFromResponse(response, 'Failed to create invite link');
+  const json = await response.json();
+  return json.data as InviteLink;
+}
+
+async function deleteInviteLink(meetingId: number, token: string): Promise<void> {
+  const response = await fetch(
+    `/api/meetings/${meetingId}/invite-links?token=${encodeURIComponent(token)}`,
+    { method: 'DELETE' }
+  );
+  if (!response.ok) await throwFromResponse(response, 'Failed to revoke invite link');
+}
+
 // ==================== Hooks ====================
 
 /** List of meetings the caller is a host or participant of. */
@@ -198,6 +265,72 @@ export function useStopRecording(id: number) {
     mutationFn: () => postStopRecording(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['meetings', id, 'recordings'] });
+    },
+  });
+}
+
+/** Minimal user list for the invite picker (non-admin accessible). */
+export function useInvitableUsers(enabled = true) {
+  return useQuery<InvitableUser[]>({
+    queryKey: ['meetings', 'invitable-users'],
+    queryFn: fetchInvitableUsers,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+/** Invite users. Invalidates the meeting detail so the participants list refreshes. */
+export function useInviteMeetingParticipants(meetingId: number) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, number[]>({
+    mutationFn: (userIds) => postInviteParticipants(meetingId, userIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+    },
+  });
+}
+
+/** Remove a participant (host only). */
+export function useRemoveMeetingParticipant(meetingId: number) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, number>({
+    mutationFn: (userId) => deleteRemoveParticipant(meetingId, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings', meetingId] });
+      queryClient.invalidateQueries({ queryKey: ['meetings'] });
+    },
+  });
+}
+
+/** List active guest invite links (host only). */
+export function useMeetingInviteLinks(meetingId: number, enabled = true) {
+  return useQuery<InviteLink[]>({
+    queryKey: ['meetings', meetingId, 'invite-links'],
+    queryFn: () => fetchInviteLinks(meetingId),
+    enabled,
+    staleTime: 10_000,
+  });
+}
+
+/** Create a fresh guest invite link (host only). */
+export function useCreateInviteLink(meetingId: number) {
+  const queryClient = useQueryClient();
+  return useMutation<InviteLink, Error, void>({
+    mutationFn: () => postCreateInviteLink(meetingId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings', meetingId, 'invite-links'] });
+    },
+  });
+}
+
+/** Revoke a guest invite link (host only). */
+export function useRevokeInviteLink(meetingId: number) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (token) => deleteInviteLink(meetingId, token),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['meetings', meetingId, 'invite-links'] });
     },
   });
 }

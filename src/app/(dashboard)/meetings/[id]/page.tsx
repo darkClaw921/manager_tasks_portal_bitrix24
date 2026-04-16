@@ -17,8 +17,18 @@
 import { useEffect, useMemo, useRef, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
-import { useMeetingDetail, useMeetingToken } from '@/hooks/useMeeting';
+import {
+  useMeetingDetail,
+  useMeetingToken,
+  useRemoveMeetingParticipant,
+  useMeetingInviteLinks,
+  useCreateInviteLink,
+  useRevokeInviteLink,
+} from '@/hooks/useMeeting';
+import { useToast } from '@/components/ui/Toast';
 import { MeetingRoom } from '@/components/meetings/MeetingRoom';
+import { InviteParticipantsModal } from '@/components/meetings/InviteParticipantsModal';
+import { GuestInviteLinksModal } from '@/components/meetings/GuestInviteLinksModal';
 
 interface CurrentUser {
   userId: number;
@@ -174,15 +184,103 @@ export default function MeetingPage({ params }: { params: Promise<{ id: string }
   }
 
   return (
-    <div className="h-[calc(100vh-120px)] w-full">
-      <MeetingRoom
-        meetingId={meetingId}
-        token={tokenData.token}
-        url={tokenData.url}
-        isHost={isHost}
-        userId={user.userId}
-        onLeft={handleLeave}
-      />
+    <div className="flex h-[calc(100vh-120px)] w-full flex-col gap-2">
+      {isHost && (
+        <InviteParticipantsHeader
+          meetingId={meetingId}
+          existingUserIds={(detail?.participants ?? []).map((p) => p.userId)}
+          participants={detail?.participants ?? []}
+          hostId={detail?.hostId ?? null}
+        />
+      )}
+      <div className="min-h-0 flex-1">
+        <MeetingRoom
+          meetingId={meetingId}
+          token={tokenData.token}
+          url={tokenData.url}
+          isHost={isHost}
+          userId={user.userId}
+          onLeft={handleLeave}
+        />
+      </div>
     </div>
+  );
+}
+
+interface InviteParticipantsHeaderProps {
+  meetingId: number;
+  existingUserIds: number[];
+  participants: Array<{ userId: number; userName: string | null }>;
+  hostId: number | null;
+}
+
+function InviteParticipantsHeader({
+  meetingId,
+  existingUserIds,
+  participants,
+  hostId,
+}: InviteParticipantsHeaderProps) {
+  const [open, setOpen] = useState(false);
+  const [guestOpen, setGuestOpen] = useState(false);
+  const remove = useRemoveMeetingParticipant(meetingId);
+  const { toast } = useToast();
+
+  const handleRemove = async (userId: number) => {
+    try {
+      await remove.mutateAsync(userId);
+      toast('success', 'Участник удалён');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Не удалось удалить';
+      toast('error', message);
+    }
+  };
+
+  const nonHost = participants.filter((p) => p.userId !== hostId);
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2 rounded-card bg-surface p-3 shadow-card">
+        <Button type="button" variant="primary" size="sm" onClick={() => setOpen(true)}>
+          Пригласить
+        </Button>
+        <Button type="button" variant="secondary" size="sm" onClick={() => setGuestOpen(true)}>
+          Ссылка для гостей
+        </Button>
+        <span className="text-small text-text-secondary">
+          Приглашённые ({nonHost.length}):
+        </span>
+        {nonHost.length === 0 && (
+          <span className="text-small text-text-secondary">пока никого</span>
+        )}
+        {nonHost.map((p) => (
+          <span
+            key={p.userId}
+            className="inline-flex items-center gap-1 rounded-input bg-background px-2 py-1 text-small"
+          >
+            {p.userName ?? `#${p.userId}`}
+            <button
+              type="button"
+              onClick={() => handleRemove(p.userId)}
+              disabled={remove.isPending}
+              className="text-text-secondary hover:text-danger disabled:opacity-50"
+              aria-label="Удалить"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <InviteParticipantsModal
+        meetingId={meetingId}
+        open={open}
+        onClose={() => setOpen(false)}
+        existingUserIds={existingUserIds}
+      />
+      <GuestInviteLinksModal
+        meetingId={meetingId}
+        open={guestOpen}
+        onClose={() => setGuestOpen(false)}
+      />
+    </>
   );
 }

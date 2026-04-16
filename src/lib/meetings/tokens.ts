@@ -92,3 +92,45 @@ export async function issueLiveKitToken(input: IssueTokenInput): Promise<string>
 
   return token.toJwt();
 }
+
+export interface IssueGuestTokenInput {
+  /** Unique identity string, typically `guest:<uuid>`. */
+  identity: string;
+  /** Display name entered by the guest on the join screen. */
+  userName: string;
+  /** Target LiveKit room. */
+  roomName: string;
+  ttl?: number | string;
+}
+
+/**
+ * Mint a LiveKit token for a guest (no TaskHub account). Capabilities are
+ * intentionally minimal — join/publish/subscribe/data only, no room-admin
+ * or room-record. Identity is opaque so the caller can collide-proof it
+ * (usually via `crypto.randomUUID`).
+ */
+export async function issueGuestLiveKitToken(
+  input: IssueGuestTokenInput
+): Promise<string> {
+  const { identity, userName, roomName, ttl } = input;
+  if (!identity || typeof identity !== 'string') {
+    throw new Error('issueGuestLiveKitToken: identity must be a non-empty string');
+  }
+  if (!roomName || typeof roomName !== 'string') {
+    throw new Error('issueGuestLiveKitToken: roomName must be a non-empty string');
+  }
+  const { apiKey, apiSecret } = getLiveKitCredentials();
+  const token = new AccessToken(apiKey, apiSecret, {
+    identity,
+    name: userName,
+    ttl: ttl ?? DEFAULT_TOKEN_TTL,
+  });
+  token.addGrant({
+    roomJoin: true,
+    room: roomName,
+    canPublish: true,
+    canSubscribe: true,
+    canPublishData: true,
+  });
+  return token.toJwt();
+}

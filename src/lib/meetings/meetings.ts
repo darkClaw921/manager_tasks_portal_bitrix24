@@ -196,6 +196,32 @@ export function addParticipant(
 }
 
 /**
+ * Remove a participant from a meeting. No-op if the row does not exist.
+ * Refuses to remove the host (host removal is via `endMeeting`).
+ */
+export function removeParticipant(meetingId: number, userId: number): boolean {
+  const meeting = db
+    .select({ hostId: meetings.hostId })
+    .from(meetings)
+    .where(eq(meetings.id, meetingId))
+    .get();
+  if (!meeting) return false;
+  if (meeting.hostId === userId) {
+    throw new Error('Cannot remove the host from a meeting');
+  }
+  const result = db
+    .delete(meetingParticipants)
+    .where(
+      and(
+        eq(meetingParticipants.meetingId, meetingId),
+        eq(meetingParticipants.userId, userId)
+      )
+    )
+    .run();
+  return result.changes > 0;
+}
+
+/**
  * Record that the participant is currently in the LiveKit room.
  *
  * If the meeting was still `scheduled`, flip it to `live` and set

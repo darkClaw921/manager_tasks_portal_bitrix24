@@ -36,7 +36,9 @@ import {
   PhoneOffIcon,
   RecordCircleIcon,
   StopSquareIcon,
+  SettingsIcon,
 } from './icons';
+import { DeviceSettingsModal } from './DeviceSettingsModal';
 
 export interface MeetingControlsProps {
   /** Active LiveKit Room. May be null while still connecting. */
@@ -71,6 +73,7 @@ export function MeetingControls({
   const [camOn, setCamOn] = useState(false);
   const [screenOn, setScreenOn] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (!room) {
@@ -217,6 +220,17 @@ export function MeetingControls({
         )}
       </Button>
 
+      <Button
+        type="button"
+        variant="secondary"
+        size="md"
+        onClick={() => setSettingsOpen(true)}
+        disabled={!room}
+        aria-label="Настройки устройств"
+      >
+        <SettingsIcon className="h-4 w-4" />
+      </Button>
+
       {isHost && (
         <Button
           type="button"
@@ -263,6 +277,12 @@ export function MeetingControls({
           Завершить для всех
         </Button>
       )}
+
+      <DeviceSettingsModal
+        room={room}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   );
 }

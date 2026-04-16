@@ -68,15 +68,14 @@ services:
     restart: unless-stopped
     ports:
       - "3100:3100"
+    env_file:
+      - .env.production
     environment:
       NODE_ENV: production
       PORT: "3100"
       LIVEKIT_URL: http://livekit:7880
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
       DB_PATH: /app/data/taskhub.db
       RECORDINGS_DIR: /app/data/recordings
-      JWT_SECRET: ${JWT_SECRET}
     volumes:
       - taskhub-data:/app/data
     depends_on:

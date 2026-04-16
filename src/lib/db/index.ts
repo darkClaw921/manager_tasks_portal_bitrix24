@@ -332,6 +332,16 @@ function initializeTables() {
       payload TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
+
+    CREATE TABLE IF NOT EXISTS meeting_guest_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      token TEXT NOT NULL,
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      revoked_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS meeting_guest_tokens_token_unique ON meeting_guest_tokens(token);
   `);
 
   // Migration: create user_portal_access entries for existing portals
