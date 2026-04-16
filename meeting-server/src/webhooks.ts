@@ -28,12 +28,14 @@ import type { EgressInfo, ParticipantInfo, Room, TrackInfo } from '@livekit/prot
 import { EgressStatus, TrackType } from '@livekit/protocol';
 import { config } from './config.js';
 import {
+  countLiveParticipantsLocal,
   getMeetingByRoomName,
   getRecordingByEgressId,
   listDoneAudioForMeeting,
   listDoneMixedForMeeting,
   markParticipantJoined,
   markParticipantLeft,
+  setMeetingEmptySince,
   updateRecordingStatus,
 } from './db.js';
 import { startTrackEgress, stopAllForMeeting } from './egress.js';
@@ -134,11 +136,27 @@ async function handleParticipantJoined(
     ctx.log.warn({ roomName: room.name }, 'participant_joined for unknown room');
     return;
   }
+
+  // Phase 4: any join — user OR guest — immediately clears the empty timer.
+  // The Next.js cron would also catch this within ~1 minute but clearing
+  // here avoids a false close if a re-join happens right at the 5-minute
+  // boundary. Wrapped in try/catch so a DB hiccup cannot break the webhook.
+  try {
+    setMeetingEmptySince(meeting.id, null);
+  } catch (err) {
+    ctx.log.error(
+      { err, meetingId: meeting.id },
+      'participant_joined: failed to clear empty_since',
+    );
+  }
+
   const uid = parseUserIdFromIdentity(participant.identity);
   if (uid === null) {
-    ctx.log.warn(
-      { identity: participant.identity },
-      'participant_joined with non-user identity — skipping DB write',
+    // Guest or unrecognized identity — the empty_since clear above is enough.
+    // DB participant bookkeeping is skipped (guests don't exist in users).
+    ctx.log.debug(
+      { identity: participant.identity, meetingId: meeting.id },
+      'participant_joined with non-user identity — cleared empty_since only',
     );
     return;
   }
@@ -155,12 +173,39 @@ async function handleParticipantLeft(
 
   const meeting = getMeetingByRoomName(room.name);
   if (!meeting) return;
+
   const uid = parseUserIdFromIdentity(participant.identity);
-  if (uid === null) {
-    ctx.log.warn({ identity: participant.identity }, 'participant_left with non-user identity');
-    return;
+  if (uid !== null) {
+    markParticipantLeft(meeting.id, uid);
+  } else {
+    ctx.log.debug(
+      { identity: participant.identity, meetingId: meeting.id },
+      'participant_left with non-user identity — skipping DB participant close',
+    );
   }
-  markParticipantLeft(meeting.id, uid);
+
+  // Phase 4: after a leave, check whether any registered user still remains.
+  // We can only count DB-visible presence here — guests live in LiveKit and
+  // the worker does not query the SFU from this hot path. The Next.js cron
+  // uses RoomServiceClient to see guests and overrules us in <=60s if
+  // needed. Setting empty_since = now kicks off the 5-minute grace either
+  // way; rejoining clears it.
+  try {
+    const remaining = countLiveParticipantsLocal(meeting.id);
+    if (remaining === 0) {
+      const nowIso = new Date().toISOString();
+      setMeetingEmptySince(meeting.id, nowIso);
+      ctx.log.info(
+        { meetingId: meeting.id, emptySince: nowIso },
+        'participant_left: last DB participant gone — armed empty_since',
+      );
+    }
+  } catch (err) {
+    ctx.log.error(
+      { err, meetingId: meeting.id },
+      'participant_left: empty_since reconciliation failed',
+    );
+  }
 }
 
 async function handleEgressEnded(

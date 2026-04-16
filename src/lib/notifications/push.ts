@@ -139,6 +139,9 @@ async function deliverWebPush(userId: number, payload: PushPayload): Promise<boo
  * Creates a notification record in the database AND attempts to deliver
  * a Web Push notification to the user's subscribed device.
  *
+ * `link` overrides the click-through URL. When omitted, the URL falls back
+ * to `/tasks/<taskId>` (task-related types) or `/dashboard`.
+ *
  * @returns The notification ID from the database
  */
 export async function sendPushNotification(params: {
@@ -148,6 +151,7 @@ export async function sendPushNotification(params: {
   message?: string | null;
   portalId?: number | null;
   taskId?: number | null;
+  link?: string | null;
 }): Promise<number> {
   // Create the notification in DB
   const notificationId = createNotification({
@@ -157,11 +161,15 @@ export async function sendPushNotification(params: {
     message: params.message,
     portalId: params.portalId,
     taskId: params.taskId,
+    link: params.link,
   });
 
-  // Build the URL for notification click navigation
+  // Build the URL for notification click navigation. Explicit `link` wins;
+  // otherwise fall back to the task page or dashboard.
   let url = '/dashboard';
-  if (params.taskId) {
+  if (params.link) {
+    url = params.link;
+  } else if (params.taskId) {
     url = `/tasks/${params.taskId}`;
   }
 

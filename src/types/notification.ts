@@ -5,7 +5,8 @@ export type NotificationType =
   | 'comment_add'
   | 'mention'
   | 'overdue'
-  | 'digest';
+  | 'digest'
+  | 'meeting_invite';
 
 export interface Notification {
   id: number;
@@ -15,6 +16,7 @@ export interface Notification {
   message: string | null;
   portalId: number | null;
   taskId: number | null;
+  link: string | null;
   isRead: boolean;
   createdAt: string;
 }

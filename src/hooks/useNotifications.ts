@@ -13,6 +13,7 @@ export interface NotificationItem {
   message: string | null;
   portalId: number | null;
   taskId: number | null;
+  link: string | null;
   isRead: boolean;
   createdAt: string;
   portalName: string | null;

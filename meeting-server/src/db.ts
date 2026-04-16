@@ -26,6 +26,10 @@ export interface MeetingRow {
   created_at: string;
   started_at: string | null;
   ended_at: string | null;
+  // ISO timestamp marking when the meeting went empty. NULL while someone
+  // is live in the room. See src/lib/meetings/cleanup.ts on the Next side
+  // and the webhook handlers for participant_joined/left that maintain it.
+  empty_since: string | null;
 }
 
 export type RecordingTrackType = 'audio' | 'video' | 'mixed' | 'final_mkv';
@@ -109,6 +113,13 @@ interface PreparedStatements {
 
   upsertParticipantJoined: Statement<[number, number]>;
   markParticipantLeft: Statement<[number, number]>;
+
+  // Phase 4: empty-meeting timer. setMeetingEmptySince writes either an ISO
+  // timestamp (room went empty at ...) or NULL (someone joined). The count
+  // query is used by webhook handlers to decide whether a participant_left
+  // leaves the room truly empty.
+  setMeetingEmptySince: Statement<[string | null, number]>;
+  countLiveParticipantsLocal: Statement<[number], { cnt: number }>;
 
   selectUserName: Statement<[number], { first_name: string; last_name: string }>;
 }
@@ -202,6 +213,25 @@ function getStatements(): PreparedStatements {
       `UPDATE meeting_participants
           SET left_at = CURRENT_TIMESTAMP
         WHERE meeting_id = ? AND user_id = ? AND left_at IS NULL`,
+    ),
+
+    // Params: empty_since (ISO or NULL), meeting_id. Safe to call multiple
+    // times — the cron on the Next side is the source of truth, this is just
+    // faster feedback from the webhook layer.
+    setMeetingEmptySince: d.prepare<[string | null, number]>(
+      `UPDATE meetings SET empty_since = ? WHERE id = ?`,
+    ),
+
+    // Counts DB-visible live participants (real users only). LiveKit guests
+    // are NOT in meeting_participants — the full count is computed on the
+    // Next side via RoomServiceClient; this local count only serves the
+    // webhook "participant_left -> is the room now empty?" decision.
+    countLiveParticipantsLocal: d.prepare<[number], { cnt: number }>(
+      `SELECT COUNT(*) AS cnt
+         FROM meeting_participants
+        WHERE meeting_id = ?
+          AND joined_at IS NOT NULL
+          AND left_at IS NULL`,
     ),
 
     selectUserName: d.prepare<[number], { first_name: string; last_name: string }>(
@@ -309,4 +339,31 @@ export function getUserDisplayName(userId: number): string | null {
   if (!row) return null;
   const name = `${row.first_name} ${row.last_name}`.trim();
   return name.length > 0 ? name : null;
+}
+
+/**
+ * Phase 4 helper: write the `meetings.empty_since` timer anchor. Pass `null`
+ * to clear it (someone joined) or an ISO-8601 string when the room went
+ * empty. Works directly against the shared SQLite file; the Next.js cron
+ * (`src/lib/meetings/cleanup.ts`) reads this column every minute to decide
+ * whether to auto-end the meeting.
+ */
+export function setMeetingEmptySince(
+  meetingId: number,
+  emptySinceIso: string | null,
+): void {
+  getStatements().setMeetingEmptySince.run(emptySinceIso, meetingId);
+}
+
+/**
+ * Phase 4 helper: count DB rows in `meeting_participants` that still
+ * represent a live presence (`joined_at NOT NULL AND left_at IS NULL`). This
+ * is only the "registered users" portion of the live count — guests live in
+ * LiveKit rather than in our DB. The webhook layer uses this to short-circuit
+ * the `participant_left -> empty_since = now` decision without reaching out
+ * to LiveKit's REST API on every event.
+ */
+export function countLiveParticipantsLocal(meetingId: number): number {
+  const row = getStatements().countLiveParticipantsLocal.get(meetingId);
+  return row ? Number(row.cnt) : 0;
 }

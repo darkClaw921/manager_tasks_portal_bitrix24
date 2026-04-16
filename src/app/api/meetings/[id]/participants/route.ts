@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
 import { isHost } from '@/lib/meetings/access';
-import { addParticipant, getMeeting } from '@/lib/meetings/meetings';
+import { addParticipant, getMeetingDetail, getMeeting } from '@/lib/meetings/meetings';
+import { notifyInvitedUsers } from '@/lib/meetings/invite-notifications';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -64,9 +65,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const added = (userIds as number[]).map((uid) =>
+    // Capture the current participant set so we can tell which IDs are
+    // newly added (addParticipant is idempotent and returns the existing
+    // row for users already in the meeting — we must not re-notify them).
+    const before = getMeetingDetail(meetingId);
+    const existingIds = new Set(before?.participants.map((p) => p.userId) ?? []);
+
+    const requestedIds = userIds as number[];
+    const added = requestedIds.map((uid) =>
       addParticipant(meetingId, uid, 'participant')
     );
+
+    const newlyAddedIds = requestedIds.filter((uid) => !existingIds.has(uid));
+
+    // Fan out invite notifications for newly added users only. Fire-and-forget
+    // so notification failures never break the 201 response — we log from
+    // inside notifyInvitedUsers.
+    if (newlyAddedIds.length > 0) {
+      void notifyInvitedUsers(meetingId, newlyAddedIds, auth.user.userId).catch(
+        (err) => {
+          console.error(
+            '[meetings/[id]/participants] notifyInvitedUsers error:',
+            err instanceof Error ? err.message : err
+          );
+        }
+      );
+    }
 
     return NextResponse.json({ data: added }, { status: 201 });
   } catch (error) {

@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
       message: notifications.message,
       portalId: notifications.portalId,
       taskId: notifications.taskId,
+      link: notifications.link,
       isRead: notifications.isRead,
       createdAt: notifications.createdAt,
       portalName: portals.name,

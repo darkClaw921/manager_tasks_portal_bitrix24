@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // ==================== USERS ====================
@@ -247,11 +247,17 @@ export const timeTrackingEntries = sqliteTable('time_tracking_entries', {
 export const notifications = sqliteTable('notifications', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type').notNull(), // task_add, task_update, task_delete, comment_add, mention, overdue, digest
+  // Generic type tag. Known values: task_add, task_update, task_delete,
+  // comment_add, mention, overdue, digest, meeting_invite.
+  type: text('type').notNull(),
   title: text('title').notNull(),
   message: text('message'),
   portalId: integer('portal_id').references(() => portals.id, { onDelete: 'set null' }),
   taskId: integer('task_id').references(() => tasks.id, { onDelete: 'set null' }),
+  // Click-through target. Nullable — legacy rows and some types (digest)
+  // have no dedicated destination. When null, consumers fall back to the
+  // type-default route (e.g., `/tasks/<taskId>` or `/dashboard`).
+  link: text('link'),
   isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
 });
@@ -296,6 +302,9 @@ export const meetings = sqliteTable('meetings', {
   createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
   startedAt: text('started_at'),
   endedAt: text('ended_at'),
+  // ISO timestamp set when the last participant leaves; nulled when anyone
+  // rejoins. cleanup.ts uses (now - empty_since > 5min) to auto-end meetings.
+  emptySince: text('empty_since'),
 }, (table) => [
   uniqueIndex('meetings_room_name_unique').on(table.roomName),
 ]);
@@ -346,6 +355,30 @@ export const meetingAnnotations = sqliteTable('meeting_annotations', {
   payload: text('payload').notNull(), // JSON snapshot of strokes
   createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
 });
+
+// ==================== MEETING MESSAGES ====================
+// In-meeting chat rows. `kind` distinguishes the payload shape:
+//   - 'text':  `content` holds the message body; all file_* columns are NULL.
+//   - 'file':  file uploaded via /messages/upload; filePath/name/size/mime set.
+//   - 'image': same as 'file' plus width/height populated from sharp metadata.
+// Access control is enforced at the API layer via `canJoinMeeting` — DB-level
+// cascade ensures message rows die with the meeting (and with the user).
+export const meetingMessages = sqliteTable('meeting_messages', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  meetingId: integer('meeting_id').notNull().references(() => meetings.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'text' | 'file' | 'image'
+  content: text('content'),
+  filePath: text('file_path'),
+  fileName: text('file_name'),
+  fileSize: integer('file_size'),
+  mimeType: text('mime_type'),
+  width: integer('width'),
+  height: integer('height'),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => [
+  index('idx_meeting_messages_meeting_created').on(table.meetingId, table.createdAt),
+]);
 
 // ==================== Type Exports ====================
 export type User = typeof users.$inferSelect;
@@ -419,3 +452,6 @@ export type NewMeetingAnnotation = typeof meetingAnnotations.$inferInsert;
 
 export type MeetingGuestToken = typeof meetingGuestTokens.$inferSelect;
 export type NewMeetingGuestToken = typeof meetingGuestTokens.$inferInsert;
+
+export type MeetingMessage = typeof meetingMessages.$inferSelect;
+export type NewMeetingMessage = typeof meetingMessages.$inferInsert;

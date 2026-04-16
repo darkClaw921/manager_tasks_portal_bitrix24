@@ -168,6 +168,7 @@ function initializeTables() {
       message TEXT,
       portal_id INTEGER REFERENCES portals(id) ON DELETE SET NULL,
       task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+      link TEXT,
       is_read INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
@@ -298,7 +299,8 @@ function initializeTables() {
       recording_enabled INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       started_at TEXT,
-      ended_at TEXT
+      ended_at TEXT,
+      empty_since TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS meetings_room_name_unique ON meetings(room_name);
 
@@ -342,6 +344,22 @@ function initializeTables() {
       revoked_at TEXT
     );
     CREATE UNIQUE INDEX IF NOT EXISTS meeting_guest_tokens_token_unique ON meeting_guest_tokens(token);
+
+    CREATE TABLE IF NOT EXISTS meeting_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('text', 'file', 'image')),
+      content TEXT,
+      file_path TEXT,
+      file_name TEXT,
+      file_size INTEGER,
+      mime_type TEXT,
+      width INTEGER,
+      height INTEGER,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE INDEX IF NOT EXISTS idx_meeting_messages_meeting_created ON meeting_messages(meeting_id, created_at DESC);
   `);
 
   // Migration: create user_portal_access entries for existing portals
@@ -407,6 +425,24 @@ if (!IS_BUILD_PHASE) {
   // Migration: add paid_amount column to task_rates if missing (partial-payment support for wallet)
   try {
     sqlite.exec(`ALTER TABLE task_rates ADD COLUMN paid_amount REAL NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: add link column to notifications if missing (per-row click-through
+  // target; enables notification types like `meeting_invite` whose destination
+  // is not a task page).
+  try {
+    sqlite.exec(`ALTER TABLE notifications ADD COLUMN link TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: add empty_since column to meetings (Phase 4 — auto-close empty
+  // meetings after 5 minutes). Set when the last participant leaves, cleared
+  // on any rejoin; cleanup.tickEmptyMeetings uses it as the timer anchor.
+  try {
+    sqlite.exec(`ALTER TABLE meetings ADD COLUMN empty_since TEXT`);
   } catch {
     // Column already exists — ignore
   }

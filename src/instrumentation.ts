@@ -16,6 +16,14 @@ export async function register() {
 
     if (shouldEnableCron()) {
       initializeCron();
+
+      // Phase 4 — auto-close meetings whose rooms have been empty for >5
+      // minutes. Registered in the same enable-guard so dev environments
+      // without ENABLE_CRON stay quiet.
+      const { registerMeetingsCleanupCron } = await import(
+        '@/lib/cron/meetings-cleanup'
+      );
+      registerMeetingsCleanupCron();
     } else {
       console.log(
         '[instrumentation] Cron disabled (set ENABLE_CRON=true to enable in development)'

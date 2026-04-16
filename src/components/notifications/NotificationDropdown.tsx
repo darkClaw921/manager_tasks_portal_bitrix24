@@ -54,6 +54,12 @@ function NotificationIcon({ type }: { type: NotificationType }) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
         </svg>
       );
+    case 'meeting_invite':
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-primary">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+        </svg>
+      );
     default:
       return (
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 text-text-secondary">
@@ -187,8 +193,12 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
         markAsRead.mutate(notification.id);
       }
 
-      // Navigate to the task if available
-      if (notification.taskId) {
+      // Pick a click-through target. Explicit `link` wins (set for types
+      // like `meeting_invite` whose destination is not a task page);
+      // fall back to the task page when a taskId is associated.
+      if (notification.link) {
+        router.push(notification.link);
+      } else if (notification.taskId) {
         router.push(`/tasks/${notification.taskId}`);
       }
 

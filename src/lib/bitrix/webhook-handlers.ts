@@ -55,6 +55,7 @@ export function createNotification(params: {
   message?: string | null;
   portalId?: number | null;
   taskId?: number | null;
+  link?: string | null;
 }): number {
   const result = db
     .insert(notifications)
@@ -65,6 +66,7 @@ export function createNotification(params: {
       message: params.message || null,
       portalId: params.portalId || null,
       taskId: params.taskId || null,
+      link: params.link || null,
       isRead: false,
       createdAt: new Date().toISOString(),
     })

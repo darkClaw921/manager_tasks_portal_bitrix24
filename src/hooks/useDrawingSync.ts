@@ -100,7 +100,10 @@ export function useDrawingSync({
 
       switch (msg.type) {
         case 'stroke':
-          addStroke(msg);
+          // Stamp `createdAt` with the receiver's local clock so the 2s hold
+          // + 400ms fade timer in DrawingOverlay is immune to clock skew
+          // between peers. Any value shipped by the sender is ignored.
+          addStroke({ ...msg, createdAt: Date.now() });
           break;
         case 'undo':
           undoStroke(msg.strokeId);
@@ -121,6 +124,9 @@ export function useDrawingSync({
 
   const publishStroke = useCallback<UseDrawingSyncResult['publishStroke']>(
     async (input) => {
+      // `createdAt` is stamped locally (both here and on receive) so the
+      // DrawingOverlay fade timer is anchored to each client's own clock.
+      const createdAt = Date.now();
       const stroke: StrokeEvent = {
         type: 'stroke',
         id: input.id,
@@ -128,7 +134,8 @@ export function useDrawingSync({
         color: input.color,
         width: input.width,
         points: input.points,
-        timestamp: input.timestamp ?? Date.now(),
+        timestamp: input.timestamp ?? createdAt,
+        createdAt,
       };
       // Optimistic local update — runs even if the network publish fails.
       addStroke(stroke);

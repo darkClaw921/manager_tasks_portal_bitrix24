@@ -16,7 +16,7 @@
  * the main pane and demote the rest to a horizontal strip of small tiles.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ConnectionState,
   Track,
@@ -30,8 +30,37 @@ import { VideoTile } from './VideoTile';
 import { ScreenShareView } from './ScreenShareView';
 import { MeetingControls } from './MeetingControls';
 import { ParticipantsList } from './ParticipantsList';
+import { ChatPanel } from './ChatPanel';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
+
+type SidebarTab = 'participants' | 'chat';
+
+/**
+ * localStorage key for remembering the last active sidebar tab so users who
+ * prefer the chat tab don't have to re-select it every meeting.
+ */
+const TAB_STORAGE_KEY = 'taskhub.meeting-room.sidebar-tab';
+
+function readStoredTab(): SidebarTab {
+  if (typeof window === 'undefined') return 'participants';
+  try {
+    const v = window.localStorage.getItem(TAB_STORAGE_KEY);
+    if (v === 'participants' || v === 'chat') return v;
+  } catch {
+    // noop — localStorage may be unavailable in private mode
+  }
+  return 'participants';
+}
+
+function persistTab(tab: SidebarTab) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(TAB_STORAGE_KEY, tab);
+  } catch {
+    // noop
+  }
+}
 
 export interface MeetingRoomProps {
   meetingId: number;
@@ -100,6 +129,23 @@ export function MeetingRoom({
   useEffect(() => {
     setBump((b) => b + 1);
   }, [participantsMap]);
+
+  // Sidebar tab + unread chat badge. The badge counts messages that arrived
+  // while the sidebar was on the "participants" tab; switching to "chat"
+  // clears it. Initial tab is restored from localStorage on first render.
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('participants');
+  const [unreadChat, setUnreadChat] = useState<number>(0);
+  useEffect(() => {
+    setSidebarTab(readStoredTab());
+  }, []);
+  const onSelectTab = useCallback((tab: SidebarTab) => {
+    setSidebarTab(tab);
+    persistTab(tab);
+    if (tab === 'chat') setUnreadChat(0);
+  }, []);
+  const onNewChatMessage = useCallback(() => {
+    setUnreadChat((c) => c + 1);
+  }, []);
 
   const screenShare = useMemo<ScreenShareSelection | null>(() => {
     if (!room) return null;
@@ -203,9 +249,78 @@ export function MeetingRoom({
         )}
       </div>
 
-      {/* Right sidebar */}
-      <aside className="hidden min-h-0 lg:block">
-        <ParticipantsList />
+      {/* Right sidebar — Участники / Чат tabs */}
+      <aside className="hidden min-h-0 flex-col lg:flex">
+        <div
+          role="tablist"
+          aria-label="Панель встречи"
+          className="mb-2 flex gap-1 rounded-card bg-surface p-1 shadow-card"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sidebarTab === 'participants'}
+            onClick={() => onSelectTab('participants')}
+            className={cn(
+              'flex-1 rounded px-3 py-1.5 text-small font-medium transition',
+              sidebarTab === 'participants'
+                ? 'bg-primary text-text-inverse'
+                : 'text-text-secondary hover:bg-background'
+            )}
+          >
+            Участники
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sidebarTab === 'chat'}
+            onClick={() => onSelectTab('chat')}
+            className={cn(
+              'relative flex-1 rounded px-3 py-1.5 text-small font-medium transition',
+              sidebarTab === 'chat'
+                ? 'bg-primary text-text-inverse'
+                : 'text-text-secondary hover:bg-background'
+            )}
+          >
+            Чат
+            {unreadChat > 0 && sidebarTab !== 'chat' && (
+              <span
+                aria-label={`${unreadChat} непрочитанных`}
+                className="ml-1.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-semibold leading-[18px] text-white"
+              >
+                {unreadChat > 99 ? '99+' : unreadChat}
+              </span>
+            )}
+          </button>
+        </div>
+        <div className="min-h-0 flex-1">
+          {/* Both panels are mounted at all times: the chat panel must keep
+              its LiveKit subscription so unread messages can arrive while the
+              participants tab is visible. We toggle only the CSS display. */}
+          <div
+            role="tabpanel"
+            aria-hidden={sidebarTab !== 'participants'}
+            className={cn(
+              'h-full',
+              sidebarTab === 'participants' ? 'block' : 'hidden'
+            )}
+          >
+            <ParticipantsList />
+          </div>
+          <div
+            role="tabpanel"
+            aria-hidden={sidebarTab !== 'chat'}
+            className={cn('h-full', sidebarTab === 'chat' ? 'block' : 'hidden')}
+          >
+            <ChatPanel
+              meetingId={meetingId}
+              room={room}
+              userId={userId}
+              isActive={sidebarTab === 'chat'}
+              onNewMessage={onNewChatMessage}
+            />
+          </div>
+        </div>
       </aside>
 
       {/* Controls — span full width of the grid */}

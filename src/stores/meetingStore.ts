@@ -77,6 +77,13 @@ interface MeetingState {
   addStroke: (stroke: StrokeEvent) => void;
   undoStroke: (strokeId: string) => void;
   clearStrokes: () => void;
+  /**
+   * Remove strokes whose total lifetime (2000ms hold + 400ms fade = 2400ms)
+   * has elapsed as of `now`. Preserves referential identity of the
+   * `annotations` array when nothing was pruned so Zustand selectors don't
+   * trigger unnecessary re-renders from the DrawingOverlay's rAF loop.
+   */
+  pruneExpiredStrokes: (now: number) => void;
   setTool: (patch: Partial<ToolsState>) => void;
 
   // ==================== Recording actions ====================
@@ -151,6 +158,31 @@ export const useMeetingStore = create<MeetingState>((set) => ({
     })),
 
   clearStrokes: () => set({ annotations: [] }),
+
+  pruneExpiredStrokes: (now) =>
+    set((state) => {
+      const LIFETIME_MS = 1400; // 1000ms hold + 400ms start-to-end wipe
+      // Fast path: if the first (oldest) stroke is still alive the whole
+      // array is alive because strokes are appended in chronological order.
+      // This keeps the store ref-stable between rAF ticks when everything is
+      // still within its hold window.
+      const first = state.annotations[0];
+      if (first) {
+        const firstAge = first.createdAt !== undefined ? now - first.createdAt : 0;
+        if (firstAge <= LIFETIME_MS) return state;
+      } else {
+        return state;
+      }
+      const next = state.annotations.filter((s) => {
+        // Strokes without createdAt (legacy wire payload that slipped past the
+        // receive hook, if any) are treated as fresh so we never drop them
+        // silently — the overlay will stamp them on its next render.
+        if (s.createdAt === undefined) return true;
+        return now - s.createdAt <= LIFETIME_MS;
+      });
+      if (next.length === state.annotations.length) return state;
+      return { annotations: next };
+    }),
 
   setTool: (patch) =>
     set((state) => ({ tools: { ...state.tools, ...patch } })),
