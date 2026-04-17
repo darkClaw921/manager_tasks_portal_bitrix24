@@ -763,17 +763,17 @@ if [ "$COMMAND" = "rebuild" ] || [ "$FORCE_NOCACHE" = true ]; then
 else
     info "Building Docker image..."
 fi
-docker compose build $BUILD_FLAGS
+docker compose --env-file "$ENV_FILE" build $BUILD_FLAGS
 ok "Image built"
 
 # 5. Start container
 if [ "$ATTACHED" = true ]; then
     info "Starting TaskHub (foreground, Ctrl+C to stop)..."
     echo ""
-    docker compose up
+    docker compose --env-file "$ENV_FILE" up
 else
     info "Starting TaskHub..."
-    docker compose up -d
+    docker compose --env-file "$ENV_FILE" up -d
 
     # 6. Wait for healthy
     info "Waiting for service to be ready..."

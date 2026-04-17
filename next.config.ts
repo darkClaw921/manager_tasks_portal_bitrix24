@@ -93,11 +93,6 @@ const withPWA = withPWAInit({
 const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["pdfmake"],
-  env: {
-    // Expose LiveKit WebSocket URL to the browser bundle. Falls back to the
-    // local dev server shipped in the root docker-compose.yml.
-    NEXT_PUBLIC_LIVEKIT_URL: process.env.NEXT_PUBLIC_LIVEKIT_URL ?? "ws://localhost:7880",
-  },
 };
 
 export default withPWA(nextConfig);
