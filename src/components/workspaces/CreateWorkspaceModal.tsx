@@ -3,22 +3,35 @@
 /**
  * Modal for creating a new workspace.
  *
- * Phase 1: only `title` is collected. The optional `meetingId` field will be
- * exposed in Phase 2 once the "attach to meeting" flow exists.
+ * Phase 3 adds the source picker:
+ *   - "Пустая" (default)
+ *   - "Из шаблона" — choose from `WORKSPACE_TEMPLATES` (Kanban / Retro / Mind-map)
+ *   - "Дубликат существующей" — pick from the user's accessible workspaces
+ *
+ * The selected source is sent to `POST /api/workspaces` via the `templateId`
+ * or `duplicateFrom` body field; the server seeds the snapshot at version 0.
  */
 
 import { useCallback, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { InputField } from '@/components/ui/InputField';
 import { useToast } from '@/components/ui/Toast';
-import { useCreateWorkspace } from '@/hooks/useWorkspace';
+import {
+  useCreateWorkspace,
+  useWorkspaceTemplates,
+  useWorkspaces,
+} from '@/hooks/useWorkspace';
 import type { Workspace } from '@/types/workspace';
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onCreated?: (ws: Workspace) => void;
+  /** Optional: prefill duplicate-from id (e.g. when triggered from a list-row "Дублировать" button). */
+  initialDuplicateFromId?: number | null;
 }
+
+type SourceMode = 'empty' | 'template' | 'duplicate';
 
 function CloseIcon() {
   return (
@@ -35,10 +48,15 @@ function CloseIcon() {
   );
 }
 
-export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
+export function CreateWorkspaceModal({ open, onClose, onCreated, initialDuplicateFromId = null }: Props) {
   const [title, setTitle] = useState('');
   const [validation, setValidation] = useState<string | null>(null);
+  const [sourceMode, setSourceMode] = useState<SourceMode>(initialDuplicateFromId ? 'duplicate' : 'empty');
+  const [templateId, setTemplateId] = useState<string>('');
+  const [duplicateFrom, setDuplicateFrom] = useState<number | null>(initialDuplicateFromId);
   const create = useCreateWorkspace();
+  const templates = useWorkspaceTemplates();
+  const workspaces = useWorkspaces();
   const { toast } = useToast();
 
   const submit = useCallback(
@@ -49,18 +67,35 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
         setValidation('Введите название доски');
         return;
       }
+      if (sourceMode === 'template' && !templateId) {
+        setValidation('Выберите шаблон');
+        return;
+      }
+      if (sourceMode === 'duplicate' && !duplicateFrom) {
+        setValidation('Выберите доску для дублирования');
+        return;
+      }
       setValidation(null);
       try {
-        const ws = await create.mutateAsync({ title: trimmed });
+        const payload =
+          sourceMode === 'template'
+            ? { title: trimmed, templateId }
+            : sourceMode === 'duplicate'
+              ? { title: trimmed, duplicateFrom: duplicateFrom! }
+              : { title: trimmed };
+        const ws = await create.mutateAsync(payload);
         toast('success', 'Доска создана');
         setTitle('');
+        setTemplateId('');
+        setDuplicateFrom(null);
+        setSourceMode('empty');
         onCreated?.(ws);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Не удалось создать доску';
         toast('error', message);
       }
     },
-    [title, create, toast, onCreated]
+    [title, sourceMode, templateId, duplicateFrom, create, toast, onCreated]
   );
 
   if (!open) return null;
@@ -97,6 +132,50 @@ export function CreateWorkspaceModal({ open, onClose, onCreated }: Props) {
             autoFocus
             maxLength={200}
           />
+          <div className="space-y-1">
+            <div className="text-small font-medium text-foreground">Источник</div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {(['empty', 'template', 'duplicate'] as const).map((m) => (
+                <label key={m} className="flex items-center gap-1 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="source-mode"
+                    checked={sourceMode === m}
+                    onChange={() => setSourceMode(m)}
+                  />
+                  {m === 'empty' ? 'Пустая' : m === 'template' ? 'Из шаблона' : 'Дубликат'}
+                </label>
+              ))}
+            </div>
+            {sourceMode === 'template' && (
+              <select
+                value={templateId}
+                onChange={(e) => setTemplateId(e.target.value)}
+                className="mt-2 w-full rounded-input border border-border bg-background px-2 py-1.5 text-small focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">— Выберите шаблон —</option>
+                {templates.data?.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title} — {t.description}
+                  </option>
+                ))}
+              </select>
+            )}
+            {sourceMode === 'duplicate' && (
+              <select
+                value={duplicateFrom ?? ''}
+                onChange={(e) => setDuplicateFrom(e.target.value ? Number(e.target.value) : null)}
+                className="mt-2 w-full rounded-input border border-border bg-background px-2 py-1.5 text-small focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">— Выберите доску —</option>
+                {workspaces.data?.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.title}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onClose} disabled={create.isPending}>
               Отмена

@@ -32,6 +32,17 @@ import type { WorkspaceParticipantWithUser } from '@/lib/workspaces/access';
 export interface CreateWorkspaceInput {
   title: string;
   meetingId?: number | null;
+  /** Phase 3: pre-seed the workspace from a built-in template id. */
+  templateId?: string;
+  /** Phase 3: pre-seed by duplicating an existing workspace by id. */
+  duplicateFrom?: number;
+}
+
+/** Phase 3: built-in template metadata served by /api/workspaces/templates. */
+export interface WorkspaceTemplateMeta {
+  id: string;
+  title: string;
+  description: string;
 }
 
 export interface UpdateWorkspaceInput {
@@ -177,6 +188,20 @@ export function useCreateWorkspace() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] });
     },
+  });
+}
+
+/** Phase 3: Workspace template catalogue. */
+export function useWorkspaceTemplates() {
+  return useQuery<WorkspaceTemplateMeta[]>({
+    queryKey: ['workspaces', 'templates'],
+    queryFn: async () => {
+      const res = await fetch('/api/workspaces/templates');
+      if (!res.ok) throw new Error('Failed to fetch templates');
+      const json = (await res.json()) as { data: { templates: WorkspaceTemplateMeta[] } };
+      return json.data.templates;
+    },
+    staleTime: 60_000,
   });
 }
 

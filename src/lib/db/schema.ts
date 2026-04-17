@@ -490,6 +490,40 @@ export const workspaceAssets = sqliteTable('workspace_assets', {
   index('idx_workspace_assets_ws').on(table.workspaceId),
 ]);
 
+// ==================== WORKSPACE ELEMENT COMMENTS (Phase 3) ====================
+// Per-element threaded comments. `elementId` is the canvas element UUID;
+// rows survive even when the element is deleted (so historic threads remain
+// readable by participants). `resolved` lets users hide finished threads.
+export const workspaceElementComments = sqliteTable('workspace_element_comments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workspaceId: integer('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  elementId: text('element_id').notNull(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  content: text('content').notNull(),
+  resolved: integer('resolved').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  updatedAt: text('updated_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => [
+  index('idx_workspace_comments_ws_element').on(table.workspaceId, table.elementId),
+  index('idx_workspace_comments_ws_created').on(table.workspaceId, table.createdAt),
+]);
+
+// ==================== WORKSPACE SNAPSHOTS HISTORY (Phase 3) ====================
+// Append-only history of past snapshots. Triggered each time the live
+// snapshot is saved; the most recent N entries per workspace are kept (older
+// rows are pruned by the service layer). Rollback is supported by copying a
+// row's `payload` back into `workspaces.snapshot_payload`.
+export const workspaceSnapshotsHistory = sqliteTable('workspace_snapshots_history', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workspaceId: integer('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  version: integer('version').notNull(),
+  payload: text('payload').notNull(),
+  createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => [
+  index('idx_workspace_history_ws_created').on(table.workspaceId, table.createdAt),
+]);
+
 // ==================== Type Exports ====================
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -580,3 +614,9 @@ export type NewWorkspaceChatMessage = typeof workspaceChatMessages.$inferInsert;
 
 export type WorkspaceAsset = typeof workspaceAssets.$inferSelect;
 export type NewWorkspaceAsset = typeof workspaceAssets.$inferInsert;
+
+export type WorkspaceElementComment = typeof workspaceElementComments.$inferSelect;
+export type NewWorkspaceElementComment = typeof workspaceElementComments.$inferInsert;
+
+export type WorkspaceSnapshotHistory = typeof workspaceSnapshotsHistory.$inferSelect;
+export type NewWorkspaceSnapshotHistory = typeof workspaceSnapshotsHistory.$inferInsert;

@@ -56,12 +56,28 @@ interface CardProps {
   workspace: Workspace;
   onOpen: (id: number) => void;
   onDelete: (id: number) => void;
+  onDuplicate: (id: number) => void;
   isDeleting: boolean;
 }
 
-function WorkspaceCard({ workspace, onOpen, onDelete, isDeleting }: CardProps) {
+function WorkspaceCard({ workspace, onOpen, onDelete, onDuplicate, isDeleting }: CardProps) {
+  // Server-rendered thumbnail. We bust cache when the snapshot updates by
+  // appending `?v=<updatedAt>`. The route is auth-protected.
+  const thumbSrc = `/api/workspaces/${workspace.id}/thumbnail?v=${encodeURIComponent(workspace.updatedAt)}`;
   return (
     <div className="flex flex-col gap-3 rounded-card border border-border bg-surface p-4 shadow-sm hover:shadow transition-shadow">
+      <div className="aspect-[3/2] w-full rounded-input bg-background border border-border overflow-hidden flex items-center justify-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={thumbSrc}
+          alt={`Превью ${workspace.title}`}
+          className="w-full h-full object-contain"
+          onError={(e) => {
+            // Hide broken image: show a discreet placeholder text instead.
+            (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+          }}
+        />
+      </div>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-body font-semibold text-foreground">
@@ -85,6 +101,15 @@ function WorkspaceCard({ workspace, onOpen, onDelete, isDeleting }: CardProps) {
         >
           Удалить
         </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => onDuplicate(workspace.id)}
+          title="Создать дубликат"
+        >
+          Дублировать
+        </Button>
         <Button type="button" variant="primary" size="sm" onClick={() => onOpen(workspace.id)}>
           Открыть
         </Button>
@@ -99,9 +124,22 @@ export default function WorkspacesPage() {
   const deleteWs = useDeleteWorkspace();
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Phase 3: when the user clicks "Дублировать" on a card, prefill the modal
+  // with `initialDuplicateFromId` so the source picker lands on Duplicate.
+  const [duplicateSource, setDuplicateSource] = useState<number | null>(null);
 
-  const handleOpenDialog = useCallback(() => setDialogOpen(true), []);
-  const handleCloseDialog = useCallback(() => setDialogOpen(false), []);
+  const handleOpenDialog = useCallback(() => {
+    setDuplicateSource(null);
+    setDialogOpen(true);
+  }, []);
+  const handleCloseDialog = useCallback(() => {
+    setDialogOpen(false);
+    setDuplicateSource(null);
+  }, []);
+  const handleDuplicate = useCallback((id: number) => {
+    setDuplicateSource(id);
+    setDialogOpen(true);
+  }, []);
 
   const handleOpen = useCallback(
     (id: number) => {
@@ -189,6 +227,7 @@ export default function WorkspacesPage() {
               workspace={ws}
               onOpen={handleOpen}
               onDelete={handleDelete}
+              onDuplicate={handleDuplicate}
               isDeleting={deleteWs.isPending}
             />
           ))}
@@ -199,6 +238,7 @@ export default function WorkspacesPage() {
         open={dialogOpen}
         onClose={handleCloseDialog}
         onCreated={handleCreated}
+        initialDuplicateFromId={duplicateSource}
       />
     </div>
   );

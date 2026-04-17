@@ -118,6 +118,45 @@ function IconTable() {
   );
 }
 
+function IconUndo() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+      <path d="M3 7v6h6" />
+      <path d="M21 17a8 8 0 0 0-8-8h-9" />
+    </svg>
+  );
+}
+
+function IconRedo() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+      <path d="M21 7v6h-6" />
+      <path d="M3 17a8 8 0 0 1 8-8h9" />
+    </svg>
+  );
+}
+
+function IconGrid() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
+    </svg>
+  );
+}
+
+function IconDownload() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
 const TOOLS: ToolDef[] = [
   { tool: 'select', shortcut: 'V', label: 'Выбор', icon: IconCursor },
   { tool: 'rect', shortcut: 'R', label: 'Прямоугольник', icon: IconRect },
@@ -147,6 +186,17 @@ export interface WorkspaceToolbarProps {
    * When omitted the button is hidden.
    */
   onInsertTable?: () => void;
+  /** Phase 3: undo/redo plumbing (omit to hide). */
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  /** Phase 3: snap-to-grid step in WORLD units. 0 = off. Caller toggles. */
+  snapGridStep?: number;
+  onToggleSnapGrid?: (next: number) => void;
+  /** Phase 3: client-side export buttons (PNG / PDF). */
+  onExportPng?: () => void;
+  onExportPdf?: () => void;
 }
 
 export function WorkspaceToolbar({
@@ -154,6 +204,14 @@ export function WorkspaceToolbar({
   workspaceId,
   onImageReady,
   onInsertTable,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  snapGridStep = 0,
+  onToggleSnapGrid,
+  onExportPng,
+  onExportPdf,
 }: WorkspaceToolbarProps) {
   const tool = useWorkspaceStore((s) => s.tool);
   const setTool = useWorkspaceStore((s) => s.setTool);
@@ -256,6 +314,77 @@ export function WorkspaceToolbar({
             >
               <IconTable />
             </button>
+          </>
+        )}
+        {(onUndo || onRedo) && (
+          <>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+            <button
+              type="button"
+              title="Отменить (Ctrl/Cmd+Z)"
+              aria-label="Отменить"
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="flex items-center justify-center w-8 h-8 rounded-input text-text-secondary hover:text-foreground hover:bg-background disabled:opacity-40"
+            >
+              <IconUndo />
+            </button>
+            <button
+              type="button"
+              title="Повторить (Ctrl/Cmd+Shift+Z)"
+              aria-label="Повторить"
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="flex items-center justify-center w-8 h-8 rounded-input text-text-secondary hover:text-foreground hover:bg-background disabled:opacity-40"
+            >
+              <IconRedo />
+            </button>
+          </>
+        )}
+        {onToggleSnapGrid && (
+          <button
+            type="button"
+            title={snapGridStep > 0 ? `Привязка к сетке (${snapGridStep}px) — выкл.` : 'Привязка к сетке — вкл.'}
+            aria-label="Привязка к сетке"
+            aria-pressed={snapGridStep > 0}
+            onClick={() => onToggleSnapGrid(snapGridStep > 0 ? 0 : 16)}
+            className={cn(
+              'flex items-center justify-center w-8 h-8 rounded-input transition-colors',
+              snapGridStep > 0
+                ? 'bg-primary/10 text-primary'
+                : 'text-text-secondary hover:text-foreground hover:bg-background'
+            )}
+          >
+            <IconGrid />
+          </button>
+        )}
+        {(onExportPng || onExportPdf) && (
+          <>
+            <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+            {onExportPng && (
+              <button
+                type="button"
+                title="Экспорт PNG"
+                aria-label="Экспорт PNG"
+                onClick={onExportPng}
+                className="flex items-center justify-center w-8 h-8 rounded-input text-text-secondary hover:text-foreground hover:bg-background"
+              >
+                <IconDownload />
+                <span className="ml-1 text-[10px] font-semibold">PNG</span>
+              </button>
+            )}
+            {onExportPdf && (
+              <button
+                type="button"
+                title="Экспорт PDF"
+                aria-label="Экспорт PDF"
+                onClick={onExportPdf}
+                className="flex items-center justify-center w-8 h-8 rounded-input text-text-secondary hover:text-foreground hover:bg-background"
+              >
+                <IconDownload />
+                <span className="ml-1 text-[10px] font-semibold">PDF</span>
+              </button>
+            )}
           </>
         )}
         {imageActionsEnabled && (

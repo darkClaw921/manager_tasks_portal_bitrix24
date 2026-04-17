@@ -1303,3 +1303,77 @@ Topic constants are exported from [src/types/workspace.ts](./src/types/workspace
 ### Workspaces Navigation
 
 - [src/components/layout/Sidebar.tsx](./src/components/layout/Sidebar.tsx) — `WorkspacesIcon` (inline SVG, board glyph) + `{href: '/workspaces', label: 'Доски'}` entry in `NAV_ITEMS`.
+
+### Workspaces Phase 3 — Polish layer
+
+Phase 3 adds: multi-select + group transform, alignment guides (snapping), local undo/redo, server-side thumbnails, templates + duplicate, comments, snapshot history with rollback, client-side PNG/PDF export, and presenter mode.
+
+#### Phase 3 DB Tables (additions)
+
+| Table | Columns | Indexes |
+|-------|---------|---------|
+| **workspace_element_comments** | id, workspace_id FK(workspaces CASCADE), element_id, user_id FK(users CASCADE), content, resolved (default 0), created_at, updated_at | INDEX(workspace_id, element_id); INDEX(workspace_id, created_at) |
+| **workspace_snapshots_history** | id, workspace_id FK(workspaces CASCADE), version, payload TEXT (JSON), created_by FK(users SET NULL), created_at | INDEX(workspace_id, created_at) |
+
+Schema declared in [src/lib/db/schema.ts](./src/lib/db/schema.ts) and bootstrapped in [src/lib/db/index.ts](./src/lib/db/index.ts).
+
+#### Phase 3 Service Layer ([`src/lib/workspaces/`](./src/lib/workspaces/))
+
+| File | Description |
+|------|-------------|
+| [snapping.ts](./src/lib/workspaces/snapping.ts) | Pure snap math. `snap(bbox, targets, {threshold, gridStep?}) → {bbox, guides[]}` — magnetic alignment for left/center/right and top/center/bottom edges; optional grid snap; emits `Guide` objects (axis + pos + extents) for the overlay. `snapAgainstElements(bbox, elementsRecord, excludeIds, opts)` filters out moving elements and delegates to `snap` |
+| [undo.ts](./src/lib/workspaces/undo.ts) | Pure inverse builder. `buildInverse(op, before)` returns the WorkspaceOp that undoes the supplied op given the pre-mutation snapshot. add↔delete, delete→add, update→reverse-patch, transform→reverse xy/size/rot, z→reverse index. Returns null for impossible inversions |
+| [thumbnail.ts](./src/lib/workspaces/thumbnail.ts) | Server-side thumbnail generator. `generateThumbnail(workspaceId)` reads the snapshot, renders an SVG (rect/ellipse/line/arrow/text/sticky/freehand/table/image-placeholder), rasterises to PNG via `sharp` (already a transitive Next.js dep), writes to `data/workspace-thumbnails/<id>.png`, persists `workspaces.thumbnailPath`. `getThumbnailPath(id)` returns the on-disk path with containment guard. Empty workspaces clear the thumbnail |
+| [comments.ts](./src/lib/workspaces/comments.ts) | Per-element threaded comments. `createComment`, `listCommentsForElement` (joined with author display name), `getCommentCountsByElement(includeResolved?)` for badges, `setCommentResolved`, `deleteComment`, `getComment`, `listRecentComments(workspaceId, limit)` for the activity tab |
+| [history.ts](./src/lib/workspaces/history.ts) | Append-only snapshot history. `recordHistorySnapshot({workspaceId, version, payload, createdBy})` (idempotent on duplicate version), `listHistory(workspaceId)` (newest first, with author), `getHistoryRow(wsId, histId)` (full payload for preview), `countHistory`. Auto-prunes beyond `MAX_HISTORY_PER_WORKSPACE` (30) per workspace on every insert |
+| [templates.ts](./src/lib/workspaces/templates.ts) | Built-in workspace templates as code-resident snapshot payloads. `WORKSPACE_TEMPLATES` (Kanban / Retro / Mind-map), `getTemplate(id)`, `instantiateTemplate(template, ownerId)` — remaps element ids to fresh UUIDs and stamps `createdBy`/`updatedAt` |
+| [export.ts](./src/lib/workspaces/export.ts) | **Client-side** workspace export. `exportWorkspaceAsPng(workspaceId)` and `exportWorkspaceAsPdf(workspaceId)` render the live `workspaceStore` state into an offscreen `<canvas>` (bbox of all elements + 32 px padding, capped at 8000 px), trigger a browser download. PDF route lazy-imports `pdfmake` + its vfs to keep the initial bundle light |
+
+#### Phase 3 API Routes
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/workspaces` | POST | Phase 3: now also accepts `templateId?: string` (seeds snapshot from a built-in template) OR `duplicateFrom?: number` (copies the source workspace's snapshot). Mutually exclusive — 400 if both supplied. Auth on duplicate source enforced via `canJoinWorkspace` |
+| `/api/workspaces/templates` | GET | Returns the built-in template catalogue (id/title/description, payload omitted) |
+| `/api/workspaces/[id]/snapshot` | POST | Phase 3 side-effects: also calls `recordHistorySnapshot` (best-effort, swallowed on failure) AND fires `generateThumbnail` (fire-and-forget) so the listing page sees a fresh preview |
+| `/api/workspaces/[id]/thumbnail` | GET | `requireAuth` + `canJoinWorkspace`. Streams PNG bytes from `data/workspace-thumbnails/<id>.png`. 404 when no thumbnail yet (clients show placeholder). `Cache-Control: private, max-age=60, must-revalidate` so updates land on next refresh |
+| `/api/workspaces/[id]/comments` | GET | `requireAuth` + `canJoinWorkspace`. Query: `elementId` (return thread), `mode=counts` (per-element counts; `includeResolved=1` toggle), default returns recent activity (50 newest) |
+| `/api/workspaces/[id]/comments` | POST | `requireAuth` + `canEditWorkspace`. Body `{elementId, content}`. Returns 201 `{data: {comment}}` |
+| `/api/workspaces/[id]/comments/[commentId]` | PATCH | `requireAuth`. Body `{resolved: boolean}`. Author OR owner only |
+| `/api/workspaces/[id]/comments/[commentId]` | DELETE | `requireAuth`. Author OR owner OR editor only |
+| `/api/workspaces/[id]/history` | GET | `requireAuth` + `canJoinWorkspace`. Returns metadata-only listing (id, version, createdAt, createdBy, authorName) — payload omitted |
+| `/api/workspaces/[id]/history/[historyId]` | GET | `requireAuth` + `canJoinWorkspace`. Returns the full historic snapshot payload (parsed JSON) for preview |
+| `/api/workspaces/[id]/history/[historyId]` | POST | `requireAuth` + `isOwner` (admins are owners). Restores the historic payload by writing it back via `saveSnapshot` (next version = current+1). Triggers a thumbnail rebuild |
+
+Route files: [`templates/route.ts`](./src/app/api/workspaces/templates/route.ts), [`[id]/thumbnail/route.ts`](./src/app/api/workspaces/[id]/thumbnail/route.ts), [`[id]/comments/route.ts`](./src/app/api/workspaces/[id]/comments/route.ts), [`[id]/comments/[commentId]/route.ts`](./src/app/api/workspaces/[id]/comments/[commentId]/route.ts), [`[id]/history/route.ts`](./src/app/api/workspaces/[id]/history/route.ts), [`[id]/history/[historyId]/route.ts`](./src/app/api/workspaces/[id]/history/[historyId]/route.ts).
+
+#### Phase 3 Frontend Hooks
+
+| File | Description |
+|------|-------------|
+| [src/hooks/useUndoRedo.ts](./src/hooks/useUndoRedo.ts) | Local-session undo/redo. `useUndoRedo({commitOp})` returns `{recordLocal, undo, redo, clear, canUndo, canRedo}`. Captures inverse via `buildInverse` (pure helper from `lib/workspaces/undo`) before applying. Stack capped at 50 entries; any new local op clears the redo stack. Global keyboard bindings: Cmd/Ctrl+Z (undo), Cmd/Ctrl+Shift+Z OR Ctrl+Y (redo). Exports `snapshotElement(id)` and `snapshotElements(ids)` for capturing pre-mutation state from the store |
+| [src/hooks/useWorkspacePresenter.ts](./src/hooks/useWorkspacePresenter.ts) | Presenter-follow hook. Topic `workspace.presenter` (lossy, ~5 Hz). `useWorkspacePresenter({room, currentUserId})` returns `{isPresenting, startPresenting, stopPresenting, isFollowing, followingUserId, lastSeenPresenterId, startFollowing, stopFollowing}`. Presenter loop publishes `{presenterId, viewport, ts}`; followers `setViewport(payload.viewport)` on each receive. LWW by `ts`. Followers stop after 5 s without a heartbeat |
+| [src/hooks/useWorkspace.ts](./src/hooks/useWorkspace.ts) | Phase 3 additions: `CreateWorkspaceInput` extended with `templateId?` / `duplicateFrom?`. New hook `useWorkspaceTemplates()` (TanStack Query, queryKey `['workspaces', 'templates']`, 60 s stale) backed by `/api/workspaces/templates`. New type `WorkspaceTemplateMeta` |
+
+#### Phase 3 UI Components ([`src/components/workspaces/`](./src/components/workspaces/))
+
+| File | Description |
+|------|-------------|
+| [Canvas/SelectionLayer.tsx](./src/components/workspaces/Canvas/SelectionLayer.tsx) | **Reworked for Phase 3.** Multi-select + marquee + group transform. Pointer flow: handle → resize; selected element under shift → toggle; in-selection element → group drag; empty → marquee (additive when shift). Calls `snapAgainstElements` during single-element move/resize AND group move; publishes guides via `publishGuides` from `SnapGuides`. Handle resize still single-element. Group bounding box drawn as a dashed blue outline (no resize handles in MVP) |
+| [Canvas/SnapGuides.tsx](./src/components/workspaces/Canvas/SnapGuides.tsx) | Transparent overlay drawing pink dashed alignment guide lines. Uses a module-local pub/sub (`publishGuides([])`) so SelectionLayer can publish without React rerenders during drag. SVG lines positioned via `worldToScreen(viewport)` |
+| [Toolbar/WorkspaceToolbar.tsx](./src/components/workspaces/Toolbar/WorkspaceToolbar.tsx) | Phase 3 additions: undo/redo buttons (props `onUndo/onRedo/canUndo/canRedo`), snap-to-grid toggle (`snapGridStep` + `onToggleSnapGrid`, defaults to step 16 when enabled), export PNG / PDF buttons (`onExportPng/onExportPdf`). All buttons opt-in via prop presence — toolbar still works without them |
+| [Sidebar/WorkspaceSidebar.tsx](./src/components/workspaces/Sidebar/WorkspaceSidebar.tsx) | Phase 3 additions: 4-tab strip (Participants / AI Чат / Комментарии / История). New props `selectedElementId` (forwarded to `CommentsPanel`) and `extras` (slot rendered above tabs — used by `WorkspaceRoom` for `PresenterControls`) |
+| [Sidebar/CommentsPanel.tsx](./src/components/workspaces/Sidebar/CommentsPanel.tsx) | Per-element comments tab. When `elementId` is null: shows recent activity card. Otherwise shows the thread + a textarea to add new comments. "Решённые" toggle hides resolved entries. Each comment has Resolve/Reopen + author-only Delete. Refetches after every write |
+| [Sidebar/VersionHistoryPanel.tsx](./src/components/workspaces/Sidebar/VersionHistoryPanel.tsx) | Snapshot history tab. Lists rows newest first. Owner-only "Восстановить" button POSTs to `/history/[historyId]` then reloads the page (simplest reliable way to re-bootstrap the canvas + every other connected client) |
+| [Sidebar/PresenterControls.tsx](./src/components/workspaces/Sidebar/PresenterControls.tsx) | Sidebar card showing the current presenter mode state. Three states: nothing → "Стать презентером" (+ optional "Следовать за <name>" if someone else is presenting); we are presenting → "Прекратить"; we are following → "Выйти". Resolves presenter display names via `useWorkspaceParticipants` |
+| [Comments/CommentIndicators.tsx](./src/components/workspaces/Comments/CommentIndicators.tsx) | Tiny dot overlay on the canvas showing each element's unresolved comment count. Polls `/comments?mode=counts` every 30 s. Click forwards to `onSelect(elementId)` (parent typically opens the comments tab) |
+| [CreateWorkspaceModal.tsx](./src/components/workspaces/CreateWorkspaceModal.tsx) | **Reworked for Phase 3.** Source picker: Пустая (default) / Из шаблона (dropdown of `useWorkspaceTemplates`) / Дубликат (dropdown of caller's accessible workspaces). Sends `templateId` or `duplicateFrom` in the create body. Accepts `initialDuplicateFromId` prop so list-row "Дублировать" pre-selects the duplicate path |
+| [WorkspaceRoom.tsx](./src/components/workspaces/WorkspaceRoom.tsx) | Phase 3 wiring: wraps `commitOp` to capture pre-mutation snapshots and feed them to `recordLocal` (skips transform-op records to avoid filling history with drag chatter); renders `<SnapGuides />` and `<CommentIndicators />` inside `<WorkspaceCanvas>`; passes undo/redo, snap-grid toggle, export handlers to `WorkspaceToolbar`; passes `selectedElementId` (derived from store selection) and `<PresenterControls extras>` to `WorkspaceSidebar`; clears history stack on workspace switch |
+
+#### Phase 3 Workspaces List Page
+
+- [src/app/(dashboard)/workspaces/page.tsx](./src/app/(dashboard)/workspaces/page.tsx) — Cards now show a server-rendered thumbnail at the top (`/api/workspaces/:id/thumbnail?v=<updatedAt>` cache-busts on snapshot save). New "Дублировать" button per row opens the create modal with the source pre-selected. New action handler `handleDuplicate` + state `duplicateSource` threads the source id through
+
+#### Phase 3 Wire Format Additions
+
+- Topic `"workspace.presenter"` (lossy, ~5 Hz): `PresenterPayload { presenterId: number, viewport: {x, y, zoom}, ts: number }`. LWW by `ts`. Followers stop after 5 s of inactivity. Topic constant exported from [src/hooks/useWorkspacePresenter.ts](./src/hooks/useWorkspacePresenter.ts) as `PRESENTER_TOPIC`

@@ -6,18 +6,18 @@
  * Sits on top of the WorkspaceCanvas as a transparent <div> sized to the
  * canvas. Owns:
  *   - Hit-testing for the `select` tool: highest-z element under the cursor.
- *   - Drag-to-move + 8 resize handles.
- *   - Inline text editor (a positioned <textarea>) that appears on
- *     double-click of a `text` or `sticky` element.
+ *   - Marquee (rubber-band) selection — drag in empty space to select multiple.
+ *   - Shift+click to toggle individual elements in/out of the selection.
+ *   - Drag-to-move + 8 resize handles (single-element only).
+ *   - Group drag — when N>1 selected, drag any selected element to move all.
+ *   - Snapping (alignment guides) during drag — magnetic to neighbour edges.
+ *   - Inline text editor (a positioned <textarea>) on dbl-click of text/sticky.
  *
  * Wire format:
  *   - During drag we emit `transform` ops (the WorkspaceOps hook will throttle
  *     them to 30 Hz internally and apply optimistically).
  *   - On pointerup we emit a final `update` op so peers see the resting
  *     state on the reliable channel.
- *
- * Phase 1 scope: single-select only. The store's selection is already a Set
- * so multi-select can be added in Phase 3 with no schema changes.
  */
 
 import {
@@ -36,15 +36,20 @@ import {
   type WorkspaceOpDraft,
 } from './WorkspaceCanvas';
 import { TableEditor } from './TableEditor';
+import { publishGuides } from './SnapGuides';
+import { snapAgainstElements, type Bbox } from '@/lib/workspaces/snapping';
 import type { Element } from '@/types/workspace';
 
 const HANDLE_PX = 10;
+/** Snap distance in screen pixels — converted to world via /viewport.zoom. */
+const SNAP_THRESHOLD_PX = 6;
 
 /** 8 handles around the bounding box: corners and edge midpoints. */
 type HandleId = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 const HANDLES: HandleId[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
-interface DragState {
+interface SingleDragState {
+  kind: 'single';
   /** What we're dragging. */
   mode: 'move' | { resize: HandleId };
   /** Element id at drag start. */
@@ -52,8 +57,31 @@ interface DragState {
   /** Starting world position of the cursor. */
   startWorld: { x: number; y: number };
   /** Snapshot of element bbox at drag start. */
-  origBbox: { x: number; y: number; w: number; h: number };
+  origBbox: Bbox;
 }
+
+interface GroupDragState {
+  kind: 'group';
+  /** Element ids being moved together. */
+  ids: string[];
+  /** Starting world position of the cursor. */
+  startWorld: { x: number; y: number };
+  /** Snapshot of every element's bbox at drag start. */
+  origBboxes: Map<string, Bbox>;
+  /** Snapshot of the group bounding box at drag start. */
+  origGroupBbox: Bbox;
+}
+
+interface MarqueeState {
+  /** Starting world position of the marquee. */
+  startWorld: { x: number; y: number };
+  /** Current world position. */
+  currentWorld: { x: number; y: number };
+  /** Whether shift was held when the marquee started (additive). */
+  additive: boolean;
+}
+
+type DragState = SingleDragState | GroupDragState;
 
 export interface SelectionLayerProps {
   /** Forwarded `commitOp` from WorkspaceCanvas / useWorkspaceOps. */
@@ -61,10 +89,18 @@ export interface SelectionLayerProps {
   /**
    * Right-click on an element. Receives the hit element + viewport-space
    * coordinates of the click. Used by `WorkspaceRoom` to open the
-   * `ElementContextMenu`. When omitted, native browser context menu is
-   * suppressed but no app-level menu is shown.
+   * `ElementContextMenu`.
    */
   onElementContextMenu?: (element: Element, viewportX: number, viewportY: number) => void;
+  /**
+   * Optional callback to record drag start for undo/redo. Receives a snapshot
+   * of every affected element BEFORE the drag mutates it.
+   */
+  onDragSnapshot?: (snapshots: Element[]) => void;
+  /** Snap to grid (toggle from toolbar). 0 disables. */
+  gridStep?: number;
+  /** Disable snapping (e.g. when Alt is held — wired by WorkspaceCanvas). */
+  snapDisabled?: boolean;
   className?: string;
   style?: CSSProperties;
 }
@@ -72,6 +108,9 @@ export interface SelectionLayerProps {
 export function SelectionLayer({
   onCommit,
   onElementContextMenu,
+  onDragSnapshot,
+  gridStep = 0,
+  snapDisabled = false,
   className,
   style,
 }: SelectionLayerProps) {
@@ -82,12 +121,54 @@ export function SelectionLayer({
   const viewport = useWorkspaceStore((s) => s.viewport);
 
   const dragRef = useRef<DragState | null>(null);
+  const [marquee, setMarquee] = useState<MarqueeState | null>(null);
+  /** Alt-disable: tracked here so the SelectionLayer can react in real time. */
+  const altHeldRef = useRef(false);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') altHeldRef.current = true;
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') altHeldRef.current = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
 
-  /** Resolve the single selected element. Phase 1 = single select. */
+  /** Resolve the single selected element. Multi-select returns null here. */
   const selected = useMemo<Element | null>(() => {
     if (selection.size !== 1) return null;
     const id = selection.values().next().value;
     return id ? elements[id] ?? null : null;
+  }, [selection, elements]);
+
+  /** Group bounding box for multi-select (≥2 selected). null otherwise. */
+  const groupBbox = useMemo<Bbox | null>(() => {
+    if (selection.size < 2) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let any = false;
+    for (const id of selection) {
+      const el = elements[id];
+      if (!el) continue;
+      const x1 = Math.min(el.x, el.x + el.w);
+      const y1 = Math.min(el.y, el.y + el.h);
+      const x2 = Math.max(el.x, el.x + el.w);
+      const y2 = Math.max(el.y, el.y + el.h);
+      if (x1 < minX) minX = x1;
+      if (y1 < minY) minY = y1;
+      if (x2 > maxX) maxX = x2;
+      if (y2 > maxY) maxY = y2;
+      any = true;
+    }
+    if (!any) return null;
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }, [selection, elements]);
 
   const sortedByZ = useMemo(() => {
@@ -102,13 +183,21 @@ export function SelectionLayer({
   elementsRef.current = sortedByZ;
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const elementsMapRef = useRef(elements);
+  elementsMapRef.current = elements;
+  const onDragSnapshotRef = useRef(onDragSnapshot);
+  onDragSnapshotRef.current = onDragSnapshot;
+  const gridStepRef = useRef(gridStep);
+  gridStepRef.current = gridStep;
+  const snapDisabledRef = useRef(snapDisabled);
+  snapDisabledRef.current = snapDisabled;
 
   const hitTest = useCallback((screenX: number, screenY: number): Element | null => {
     const v = viewportRef.current;
     const world = screenToWorld({ x: screenX, y: screenY }, v);
     for (const el of elementsRef.current) {
-      // Bbox hit; for line/arrow we still use bbox in Phase 1 — proper
-      // distance-to-segment is Phase 3.
       const minX = Math.min(el.x, el.x + el.w);
       const maxX = Math.max(el.x, el.x + el.w);
       const minY = Math.min(el.y, el.y + el.h);
@@ -127,7 +216,35 @@ export function SelectionLayer({
     return null;
   }, []);
 
-  // ==================== Pointer handlers (only when tool === 'select') ====================
+  // ==================== Snap helper ====================
+  /**
+   * Apply snapping to a freshly-computed bbox, publish guides, return adjusted.
+   * The exclude set ensures we don't snap to elements that are themselves
+   * being moved (group drag).
+   */
+  const snapBbox = useCallback(
+    (bbox: Bbox, excludeIds: ReadonlySet<string>): Bbox => {
+      if (snapDisabledRef.current || altHeldRef.current) {
+        publishGuides([]);
+        return bbox;
+      }
+      const v = viewportRef.current;
+      const result = snapAgainstElements(
+        bbox,
+        elementsMapRef.current,
+        excludeIds,
+        {
+          threshold: SNAP_THRESHOLD_PX / v.zoom,
+          gridStep: gridStepRef.current > 0 ? gridStepRef.current : undefined,
+        }
+      );
+      publishGuides(result.guides);
+      return result.bbox;
+    },
+    []
+  );
+
+  // ==================== Pointer handlers ====================
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -138,33 +255,95 @@ export function SelectionLayer({
       const rect = wrapper.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
-      // First: handle hit on currently selected element.
-      const handle = selected ? hitHandle(selected, sx, sy, viewportRef.current) : null;
-      if (handle && selected) {
+
+      // 1. Resize handle on the currently single-selected element?
+      if (selected) {
+        const handle = hitHandle(selected, sx, sy, viewportRef.current);
+        if (handle) {
+          const startWorld = screenToWorld({ x: sx, y: sy }, viewportRef.current);
+          dragRef.current = {
+            kind: 'single',
+            mode: { resize: handle },
+            elementId: selected.id,
+            startWorld,
+            origBbox: { x: selected.x, y: selected.y, w: selected.w, h: selected.h },
+          };
+          // Snapshot for undo/redo.
+          onDragSnapshotRef.current?.([{ ...selected }]);
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          e.stopPropagation();
+          return;
+        }
+      }
+
+      const target = hitTest(sx, sy);
+      const shift = e.shiftKey;
+
+      // 2. Group drag: clicked on an already-selected element while there are
+      //    multiple selected → start a group move (no shift).
+      if (target && !shift && selectionRef.current.has(target.id) && selectionRef.current.size > 1) {
         const startWorld = screenToWorld({ x: sx, y: sy }, viewportRef.current);
+        const origBboxes = new Map<string, Bbox>();
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        const snapshots: Element[] = [];
+        for (const id of selectionRef.current) {
+          const el = elementsMapRef.current[id];
+          if (!el) continue;
+          origBboxes.set(id, { x: el.x, y: el.y, w: el.w, h: el.h });
+          if (el.x < minX) minX = el.x;
+          if (el.y < minY) minY = el.y;
+          if (el.x + el.w > maxX) maxX = el.x + el.w;
+          if (el.y + el.h > maxY) maxY = el.y + el.h;
+          snapshots.push({ ...el });
+        }
         dragRef.current = {
-          mode: { resize: handle },
-          elementId: selected.id,
+          kind: 'group',
+          ids: Array.from(selectionRef.current),
           startWorld,
-          origBbox: { x: selected.x, y: selected.y, w: selected.w, h: selected.h },
+          origBboxes,
+          origGroupBbox: { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
         };
+        onDragSnapshotRef.current?.(snapshots);
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
         e.stopPropagation();
         return;
       }
-      const target = hitTest(sx, sy);
+
+      // 3. Empty space (no hit): start a marquee selection.
       if (!target) {
-        useWorkspaceStore.getState().clearSelection();
+        const startWorld = screenToWorld({ x: sx, y: sy }, viewportRef.current);
+        if (!shift) {
+          // Click in empty space without shift: clear selection.
+          useWorkspaceStore.getState().clearSelection();
+        }
+        setMarquee({ startWorld, currentWorld: startWorld, additive: shift });
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        e.stopPropagation();
         return;
       }
-      useWorkspaceStore.getState().selectElement(target.id);
+
+      // 4. Click on an element.
+      if (shift) {
+        // Toggle this element in/out of selection.
+        useWorkspaceStore.getState().toggleSelectElement(target.id);
+        // No drag follow-through on shift+click.
+        e.stopPropagation();
+        return;
+      }
+      // Plain click on an element: select it (replacing current selection if
+      // it wasn't already selected) and start a single-move drag.
+      if (!selectionRef.current.has(target.id) || selectionRef.current.size > 1) {
+        useWorkspaceStore.getState().selectElement(target.id);
+      }
       const startWorld = screenToWorld({ x: sx, y: sy }, viewportRef.current);
       dragRef.current = {
+        kind: 'single',
         mode: 'move',
         elementId: target.id,
         startWorld,
         origBbox: { x: target.x, y: target.y, w: target.w, h: target.h },
       };
+      onDragSnapshotRef.current?.([{ ...target }]);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       e.stopPropagation();
     },
@@ -173,66 +352,157 @@ export function SelectionLayer({
 
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
       const wrapper = wrapperRef.current;
       if (!wrapper) return;
       const rect = wrapper.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
       const world = screenToWorld({ x: sx, y: sy }, viewportRef.current);
+
+      // Marquee?
+      if (marquee) {
+        setMarquee({ ...marquee, currentWorld: world });
+        return;
+      }
+
+      const drag = dragRef.current;
+      if (!drag) return;
+
       const dx = world.x - drag.startWorld.x;
       const dy = world.y - drag.startWorld.y;
 
-      if (drag.mode === 'move') {
+      if (drag.kind === 'single') {
+        if (drag.mode === 'move') {
+          // Snap the moving bbox.
+          const proposed: Bbox = {
+            x: drag.origBbox.x + dx,
+            y: drag.origBbox.y + dy,
+            w: drag.origBbox.w,
+            h: drag.origBbox.h,
+          };
+          const excludes = new Set([drag.elementId]);
+          const snapped = snapBbox(proposed, excludes);
+          onCommit({
+            type: 'transform',
+            id: drag.elementId,
+            xy: [snapped.x, snapped.y],
+          });
+          return;
+        }
+        const handle = drag.mode.resize;
+        const next = applyHandleResize(drag.origBbox, handle, dx, dy);
+        // Resize: snap the relevant edge being dragged.
+        const snapped = snapBbox(next, new Set([drag.elementId]));
         onCommit({
           type: 'transform',
           id: drag.elementId,
-          xy: [drag.origBbox.x + dx, drag.origBbox.y + dy],
+          xy: [snapped.x, snapped.y],
+          size: [snapped.w, snapped.h],
         });
         return;
       }
 
-      const handle = drag.mode.resize;
-      const next = applyHandleResize(drag.origBbox, handle, dx, dy);
-      onCommit({
-        type: 'transform',
-        id: drag.elementId,
-        xy: [next.x, next.y],
-        size: [next.w, next.h],
-      });
+      // Group drag.
+      const proposedGroup: Bbox = {
+        x: drag.origGroupBbox.x + dx,
+        y: drag.origGroupBbox.y + dy,
+        w: drag.origGroupBbox.w,
+        h: drag.origGroupBbox.h,
+      };
+      const excludeSet = new Set(drag.ids);
+      const snappedGroup = snapBbox(proposedGroup, excludeSet);
+      const groupDx = snappedGroup.x - drag.origGroupBbox.x;
+      const groupDy = snappedGroup.y - drag.origGroupBbox.y;
+      // Apply the same offset to every element in the group.
+      for (const id of drag.ids) {
+        const orig = drag.origBboxes.get(id);
+        if (!orig) continue;
+        onCommit({
+          type: 'transform',
+          id,
+          xy: [orig.x + groupDx, orig.y + groupDy],
+        });
+      }
     },
-    [onCommit]
+    [onCommit, marquee, snapBbox]
   );
 
   const onPointerUp = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      const drag = dragRef.current;
-      if (!drag) return;
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       } catch {
         // ignore
       }
-      // Final reliable update: read the element from the store (already
-      // optimistically updated by the transform ops).
-      const cur = useWorkspaceStore.getState().elements[drag.elementId];
-      if (cur) {
-        onCommit({
-          type: 'update',
-          id: drag.elementId,
-          patch: { x: cur.x, y: cur.y, w: cur.w, h: cur.h, updatedAt: Date.now() },
-        });
+
+      // Marquee completion: select intersecting elements.
+      if (marquee) {
+        const ax = Math.min(marquee.startWorld.x, marquee.currentWorld.x);
+        const ay = Math.min(marquee.startWorld.y, marquee.currentWorld.y);
+        const bx = Math.max(marquee.startWorld.x, marquee.currentWorld.x);
+        const by = Math.max(marquee.startWorld.y, marquee.currentWorld.y);
+        // Tiny marquees (basically clicks): no-op.
+        const minSizePx = 4;
+        const v = viewportRef.current;
+        const widthPx = (bx - ax) * v.zoom;
+        const heightPx = (by - ay) * v.zoom;
+        if (widthPx >= minSizePx || heightPx >= minSizePx) {
+          const hit: string[] = [];
+          for (const el of Object.values(elementsMapRef.current)) {
+            const elX1 = Math.min(el.x, el.x + el.w);
+            const elY1 = Math.min(el.y, el.y + el.h);
+            const elX2 = Math.max(el.x, el.x + el.w);
+            const elY2 = Math.max(el.y, el.y + el.h);
+            // Intersection (NOT containment).
+            if (elX2 < ax || elX1 > bx || elY2 < ay || elY1 > by) continue;
+            hit.push(el.id);
+          }
+          if (marquee.additive) {
+            useWorkspaceStore.getState().addToSelection(hit);
+          } else {
+            useWorkspaceStore.getState().setSelection(hit);
+          }
+        }
+        setMarquee(null);
+        return;
+      }
+
+      const drag = dragRef.current;
+      if (!drag) return;
+
+      // Clear snap guides.
+      publishGuides([]);
+
+      if (drag.kind === 'single') {
+        const cur = useWorkspaceStore.getState().elements[drag.elementId];
+        if (cur) {
+          onCommit({
+            type: 'update',
+            id: drag.elementId,
+            patch: { x: cur.x, y: cur.y, w: cur.w, h: cur.h, updatedAt: Date.now() },
+          });
+        }
+      } else {
+        // Final reliable update for every group member.
+        for (const id of drag.ids) {
+          const cur = useWorkspaceStore.getState().elements[id];
+          if (!cur) continue;
+          onCommit({
+            type: 'update',
+            id,
+            patch: { x: cur.x, y: cur.y, updatedAt: Date.now() },
+          });
+        }
       }
       dragRef.current = null;
     },
-    [onCommit]
+    [onCommit, marquee]
   );
 
   // ==================== Right-click context menu ====================
 
   const onContextMenu = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => {
+    (e: React.MouseEvent<HTMLDivElement>) => {
       if (tool !== 'select') return;
       const wrapper = wrapperRef.current;
       if (!wrapper) return;
@@ -240,11 +510,13 @@ export function SelectionLayer({
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
       const target = hitTest(sx, sy);
-      // Always suppress the native menu while in select mode — we want
-      // a clean canvas context. If nothing was hit we just close.
       e.preventDefault();
       if (!target) return;
-      useWorkspaceStore.getState().selectElement(target.id);
+      // If the element is part of an existing multi-selection, keep it; else
+      // collapse to single-select on this element.
+      if (!selectionRef.current.has(target.id) || selectionRef.current.size === 0) {
+        useWorkspaceStore.getState().selectElement(target.id);
+      }
       onElementContextMenu?.(target, e.clientX, e.clientY);
     },
     [tool, hitTest, onElementContextMenu]
@@ -298,6 +570,34 @@ export function SelectionLayer({
     };
   }
 
+  // Group bounding box in screen coords.
+  let groupBboxScreen: { left: number; top: number; w: number; h: number } | null = null;
+  if (groupBbox) {
+    const tl = worldToScreen({ x: groupBbox.x, y: groupBbox.y }, viewport);
+    groupBboxScreen = {
+      left: tl.x,
+      top: tl.y,
+      w: groupBbox.w * viewport.zoom,
+      h: groupBbox.h * viewport.zoom,
+    };
+  }
+
+  // Marquee in screen coords.
+  let marqueeScreen: { left: number; top: number; w: number; h: number } | null = null;
+  if (marquee) {
+    const ax = Math.min(marquee.startWorld.x, marquee.currentWorld.x);
+    const ay = Math.min(marquee.startWorld.y, marquee.currentWorld.y);
+    const bx = Math.max(marquee.startWorld.x, marquee.currentWorld.x);
+    const by = Math.max(marquee.startWorld.y, marquee.currentWorld.y);
+    const tl = worldToScreen({ x: ax, y: ay }, viewport);
+    marqueeScreen = {
+      left: tl.x,
+      top: tl.y,
+      w: (bx - ax) * viewport.zoom,
+      h: (by - ay) * viewport.zoom,
+    };
+  }
+
   return (
     <div
       ref={wrapperRef}
@@ -333,6 +633,39 @@ export function SelectionLayer({
             />
           ))}
         </div>
+      )}
+
+      {/* Multi-selection group bounding box. Resize handles are intentionally
+          omitted — group resize is out-of-scope for Phase 3 MVP. */}
+      {groupBboxScreen && (
+        <div
+          style={{
+            position: 'absolute',
+            left: groupBboxScreen.left,
+            top: groupBboxScreen.top,
+            width: groupBboxScreen.w,
+            height: groupBboxScreen.h,
+            border: '1px dashed #3b82f6',
+            background: 'rgba(59, 130, 246, 0.04)',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
+      {/* Marquee preview */}
+      {marqueeScreen && (
+        <div
+          style={{
+            position: 'absolute',
+            left: marqueeScreen.left,
+            top: marqueeScreen.top,
+            width: marqueeScreen.w,
+            height: marqueeScreen.h,
+            border: '1px solid #3b82f6',
+            background: 'rgba(59, 130, 246, 0.08)',
+            pointerEvents: 'none',
+          }}
+        />
       )}
 
       {editing && selected && (selected.kind === 'text' || selected.kind === 'sticky') && (
@@ -407,11 +740,11 @@ function hitHandle(
 }
 
 function applyHandleResize(
-  orig: { x: number; y: number; w: number; h: number },
+  orig: Bbox,
   handle: HandleId,
   dx: number,
   dy: number
-): { x: number; y: number; w: number; h: number } {
+): Bbox {
   let { x, y, w, h } = orig;
   switch (handle) {
     case 'nw':
@@ -449,8 +782,6 @@ function applyHandleResize(
       w = orig.w - dx;
       break;
   }
-  // Clamp to a minimum size — flipping a bbox by dragging past the opposite
-  // handle is Phase 3 polish.
   if (w < 4) w = 4;
   if (h < 4) h = 4;
   return { x, y, w, h };
@@ -458,7 +789,6 @@ function applyHandleResize(
 
 function handleCss(id: HandleId, sizePx: number): CSSProperties {
   const half = sizePx / 2;
-  // Map handle id → top/left percentage offsets.
   const positions: Record<HandleId, { left: string; top: string; cursor: string }> = {
     nw: { left: '0%', top: '0%', cursor: 'nwse-resize' },
     n: { left: '50%', top: '0%', cursor: 'ns-resize' },
@@ -502,9 +832,6 @@ function InlineEditor({ element, viewport, onCommit, onCancel }: InlineEditorPro
     element.kind === 'text' || element.kind === 'sticky' ? element.content ?? '' : '';
   const [value, setValue] = useState(initial);
   const ref = useRef<HTMLTextAreaElement | null>(null);
-  // Latest value + initial captured in refs so the unmount cleanup can still
-  // commit when the textarea is removed before its DOM `blur` event fires
-  // (happens when the parent setEditing(null)s synchronously on selection change).
   const valueRef = useRef(value);
   const initialRef = useRef(initial);
   const onCommitRef = useRef(onCommit);

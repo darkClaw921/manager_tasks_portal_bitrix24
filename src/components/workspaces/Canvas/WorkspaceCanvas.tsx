@@ -502,6 +502,13 @@ export function WorkspaceCanvas({
         const ids = Array.from(selection);
         onCommit({ type: 'delete', ids });
       }
+      // Cmd/Ctrl+A — select all elements on the canvas. Skip when focus is
+      // in an input (handled by the early return above).
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        const ids = Object.keys(useWorkspaceStore.getState().elements);
+        useWorkspaceStore.getState().setSelection(ids);
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {

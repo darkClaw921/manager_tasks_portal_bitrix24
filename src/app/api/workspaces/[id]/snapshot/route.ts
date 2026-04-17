@@ -6,6 +6,8 @@ import {
   getWorkspace,
   saveSnapshot,
 } from '@/lib/workspaces/workspaces';
+import { recordHistorySnapshot } from '@/lib/workspaces/history';
+import { generateThumbnail } from '@/lib/workspaces/thumbnail';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -178,6 +180,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     try {
       const slice = saveSnapshot(wsId, version as number, payloadString);
+      // Append history (idempotent on duplicate version) and trigger an
+      // async thumbnail rebuild — both are best-effort: failure must NOT
+      // surface as a 5xx since the snapshot itself was saved successfully.
+      try {
+        recordHistorySnapshot({
+          workspaceId: wsId,
+          version: slice.version,
+          payload: payloadString,
+          createdBy: auth.user.userId,
+        });
+      } catch (histErr) {
+        console.warn('[workspaces/[id]/snapshot] history record failed:', histErr);
+      }
+      // Fire-and-forget thumbnail. We deliberately do NOT await so the POST
+      // returns quickly; sharp may take a few hundred ms on a busy box.
+      void generateThumbnail(wsId).catch((err) => {
+        console.warn('[workspaces/[id]/snapshot] thumbnail gen failed:', err);
+      });
       return NextResponse.json({ data: slice });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save snapshot';

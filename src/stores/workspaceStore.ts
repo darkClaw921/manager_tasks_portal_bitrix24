@@ -98,6 +98,13 @@ interface WorkspaceStoreState {
   selectElement: (id: string | null) => void;
   toggleSelectElement: (id: string) => void;
   clearSelection: () => void;
+  /**
+   * Replace the entire selection with the supplied ids. Used by marquee
+   * selection in the SelectionLayer. Pass `[]` to clear.
+   */
+  setSelection: (ids: ReadonlyArray<string>) => void;
+  /** Add multiple ids to the selection. Idempotent. */
+  addToSelection: (ids: ReadonlyArray<string>) => void;
 
   // ==================== Tool ====================
   setTool: (tool: WorkspaceTool) => void;
@@ -248,6 +255,40 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set) => ({
     set((state) =>
       state.selection.size === 0 ? state : { ...state, selection: new Set<string>() }
     ),
+
+  setSelection: (ids) =>
+    set((state) => {
+      // Filter to only ids that exist in the current element set so we don't
+      // hold dangling refs.
+      const next = new Set<string>();
+      for (const id of ids) if (id in state.elements) next.add(id);
+      // Skip the update when the set is structurally identical.
+      if (next.size === state.selection.size) {
+        let same = true;
+        for (const id of next) {
+          if (!state.selection.has(id)) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return state;
+      }
+      return { ...state, selection: next };
+    }),
+
+  addToSelection: (ids) =>
+    set((state) => {
+      let mutated = false;
+      const next = new Set(state.selection);
+      for (const id of ids) {
+        if (!(id in state.elements)) continue;
+        if (!next.has(id)) {
+          next.add(id);
+          mutated = true;
+        }
+      }
+      return mutated ? { ...state, selection: next } : state;
+    }),
 
   // ==================== Tool ====================
 

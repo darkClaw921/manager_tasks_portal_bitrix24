@@ -8,14 +8,16 @@
  * don't have to re-select it every visit.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ParticipantsPanel } from './ParticipantsPanel';
 import { AIChatPanel } from './AIChatPanel';
 import { AttachedMeetingPanel } from './AttachedMeetingPanel';
+import { VersionHistoryPanel } from './VersionHistoryPanel';
+import { CommentsPanel } from './CommentsPanel';
 import { cn } from '@/lib/utils';
 import type { WorkspaceOp } from '@/types/workspace';
 
-type SidebarTab = 'participants' | 'chat';
+type SidebarTab = 'participants' | 'chat' | 'comments' | 'history';
 
 const TAB_STORAGE_KEY = 'taskhub.workspace-room.sidebar-tab';
 
@@ -23,7 +25,7 @@ function readStoredTab(): SidebarTab {
   if (typeof window === 'undefined') return 'participants';
   try {
     const v = window.localStorage.getItem(TAB_STORAGE_KEY);
-    if (v === 'participants' || v === 'chat') return v;
+    if (v === 'participants' || v === 'chat' || v === 'comments' || v === 'history') return v;
   } catch {
     // private mode
   }
@@ -57,6 +59,16 @@ export interface WorkspaceSidebarProps {
    * the live `commitOp` from `useWorkspaceOps`.
    */
   onApplyCommands?: (commands: WorkspaceOp[]) => void;
+  /**
+   * Element id that the comments tab will focus on. When null/undefined,
+   * the comments tab shows a placeholder asking the user to select an element.
+   */
+  selectedElementId?: string | null;
+  /**
+   * Slot rendered above the tab content (e.g. PresenterControls). Optional —
+   * kept slim so feature flags don't bloat the sidebar.
+   */
+  extras?: ReactNode;
   className?: string;
 }
 
@@ -68,6 +80,8 @@ export function WorkspaceSidebar({
   onAttachedMeetingChange,
   onInvite,
   onApplyCommands,
+  selectedElementId,
+  extras,
   className,
 }: WorkspaceSidebarProps) {
   const [tab, setTab] = useState<SidebarTab>('participants');
@@ -99,31 +113,29 @@ export function WorkspaceSidebar({
           />
         </div>
       )}
-      <div className="flex border-b border-border">
-        <button
-          type="button"
-          onClick={() => switchTab('participants')}
-          className={cn(
-            'flex-1 px-3 py-2 text-small text-center transition-colors',
-            tab === 'participants'
-              ? 'border-b-2 border-primary text-primary font-semibold'
-              : 'text-text-secondary hover:text-foreground'
-          )}
-        >
-          Участники
-        </button>
-        <button
-          type="button"
-          onClick={() => switchTab('chat')}
-          className={cn(
-            'flex-1 px-3 py-2 text-small text-center transition-colors',
-            tab === 'chat'
-              ? 'border-b-2 border-primary text-primary font-semibold'
-              : 'text-text-secondary hover:text-foreground'
-          )}
-        >
-          AI Чат
-        </button>
+      {extras && <div className="border-b border-border p-2">{extras}</div>}
+      <div className="flex border-b border-border text-xs">
+        {(['participants', 'chat', 'comments', 'history'] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => switchTab(id)}
+            className={cn(
+              'flex-1 px-2 py-2 text-center transition-colors',
+              tab === id
+                ? 'border-b-2 border-primary text-primary font-semibold'
+                : 'text-text-secondary hover:text-foreground'
+            )}
+          >
+            {id === 'participants'
+              ? 'Участники'
+              : id === 'chat'
+                ? 'AI Чат'
+                : id === 'comments'
+                  ? 'Комментарии'
+                  : 'История'}
+          </button>
+        ))}
       </div>
       <div className="flex-1 min-h-0">
         {tab === 'participants' && (
@@ -136,6 +148,16 @@ export function WorkspaceSidebar({
         )}
         {tab === 'chat' && (
           <AIChatPanel workspaceId={workspaceId} onApplyCommands={onApplyCommands} />
+        )}
+        {tab === 'comments' && (
+          <CommentsPanel
+            workspaceId={workspaceId}
+            elementId={selectedElementId ?? null}
+            currentUserId={currentUserId}
+          />
+        )}
+        {tab === 'history' && (
+          <VersionHistoryPanel workspaceId={workspaceId} isOwner={isOwner} />
         )}
       </div>
     </div>

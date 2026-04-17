@@ -429,6 +429,35 @@ function initializeTables() {
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
     CREATE INDEX IF NOT EXISTS idx_workspace_assets_ws ON workspace_assets(workspace_id);
+
+    -- ==================== WORKSPACE ELEMENT COMMENTS (Phase 3) ====================
+    -- Per-element threaded comments. Rows are kept after the element is
+    -- deleted from the snapshot so historic discussion remains visible.
+    CREATE TABLE IF NOT EXISTS workspace_element_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      element_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      resolved INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_comments_ws_element ON workspace_element_comments(workspace_id, element_id);
+    CREATE INDEX IF NOT EXISTS idx_workspace_comments_ws_created ON workspace_element_comments(workspace_id, created_at);
+
+    -- ==================== WORKSPACE SNAPSHOTS HISTORY (Phase 3) ====================
+    -- Append-only snapshot history for rollback. Service layer prunes the
+    -- oldest entries beyond a per-workspace cap.
+    CREATE TABLE IF NOT EXISTS workspace_snapshots_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      payload TEXT NOT NULL,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_history_ws_created ON workspace_snapshots_history(workspace_id, created_at);
   `);
 
   // Migration: create user_portal_access entries for existing portals

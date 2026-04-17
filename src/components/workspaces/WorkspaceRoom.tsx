@@ -33,6 +33,13 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { WorkspaceCanvas } from './Canvas/WorkspaceCanvas';
 import { SelectionLayer } from './Canvas/SelectionLayer';
 import { CursorsLayer } from './Canvas/CursorsLayer';
+import { SnapGuides } from './Canvas/SnapGuides';
+import { useUndoRedo, snapshotElement, snapshotElements } from '@/hooks/useUndoRedo';
+import type { WorkspaceOpInput } from '@/hooks/useWorkspaceOps';
+import { exportWorkspaceAsPng, exportWorkspaceAsPdf } from '@/lib/workspaces/export';
+import { useWorkspacePresenter } from '@/hooks/useWorkspacePresenter';
+import { PresenterControls } from './Sidebar/PresenterControls';
+import { CommentIndicators } from './Comments/CommentIndicators';
 import { WorkspaceToolbar } from './Toolbar/WorkspaceToolbar';
 import { StyleBar } from './Toolbar/StyleBar';
 import { WorkspaceSidebar } from './Sidebar/WorkspaceSidebar';
@@ -142,12 +149,81 @@ export function WorkspaceRoom({
     router.push('/workspaces');
   }, [router, toast]);
 
-  const { commitOp, flushPending } = useWorkspaceOps({
+  const { commitOp: rawCommitOp, flushPending } = useWorkspaceOps({
     workspaceId,
     room,
     userId,
     onAccessLost: handleAccessLost,
   });
+
+  // ==================== Undo/redo ====================
+  // The hook calls `rawCommitOp` directly when replaying — its internal flag
+  // suppresses the recordLocal call that the wrapper below would otherwise
+  // make, so undo entries are not pushed onto the stack as side effects of
+  // their own application.
+  const { recordLocal, undo, redo, clear: clearHistory, canUndo, canRedo } = useUndoRedo({
+    commitOp: rawCommitOp,
+  });
+
+  /**
+   * commitOp wrapper: snapshots the pre-mutation state of affected elements
+   * BEFORE applying the op, then dispatches to the underlying hook, then
+   * pushes the inverse onto the undo stack via `recordLocal`.
+   *
+   * Wire-format ops are still mintable as drafts (we accept WorkspaceOpInput
+   * — the undo plumbing just observes the result).
+   */
+  const commitOp = useCallback(
+    (op: WorkspaceOpInput): string => {
+      // Capture snapshots BEFORE the op applies.
+      let beforeSnapshot: import('@/types/workspace').Element | import('@/types/workspace').Element[] | undefined;
+      switch (op.type) {
+        case 'add':
+          // No snapshot needed — inverse is a delete by id.
+          break;
+        case 'delete':
+          beforeSnapshot = snapshotElements(op.ids);
+          break;
+        case 'update':
+        case 'transform':
+        case 'z':
+          beforeSnapshot = snapshotElement(op.id);
+          break;
+      }
+      const opId = rawCommitOp(op);
+      // Synthesise the on-wire op shape with the freshly-minted opId so the
+      // inverse builder has a complete record of what was applied.
+      const synth: import('@/types/workspace').WorkspaceOp = (() => {
+        switch (op.type) {
+          case 'add':
+            return { type: 'add', el: op.el, opId, v: 0 };
+          case 'update':
+            return { type: 'update', id: op.id, patch: op.patch, opId, v: 0 };
+          case 'transform':
+            return {
+              type: 'transform',
+              id: op.id,
+              ...(op.xy ? { xy: op.xy } : {}),
+              ...(op.size ? { size: op.size } : {}),
+              ...(op.rot !== undefined ? { rot: op.rot } : {}),
+              opId,
+              v: 0,
+            };
+          case 'delete':
+            return { type: 'delete', ids: op.ids, opId, v: 0 };
+          case 'z':
+            return { type: 'z', id: op.id, index: op.index, opId, v: 0 };
+        }
+      })();
+      // Skip transform ops (high-frequency drag events) — only the trailing
+      // `update` op carries the resting state we want to invert.
+      if (synth.type !== 'transform') {
+        recordLocal(synth, { before: beforeSnapshot });
+      }
+      return opId;
+    },
+    [rawCommitOp, recordLocal]
+  );
   const { broadcastCursor } = useWorkspacePresence({
     room,
     currentUserId: userId,
@@ -257,6 +333,14 @@ export function WorkspaceRoom({
   const [bootstrapped, setBootstrapped] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const lastConnectStateRef = useRef<ConnectionState>(ConnectionState.Disconnected);
+  // Phase 3: snap-to-grid toggle. 0 = off; otherwise snap to grid (world units).
+  const [snapGridStep, setSnapGridStep] = useState(0);
+  // Phase 3: presenter mode plumbing.
+  const presenter = useWorkspacePresenter({ room, currentUserId: userId });
+  // Selection observer used by the comments tab to focus on the active element.
+  const storeSelection = useWorkspaceStore((s) => s.selection);
+  const selectedElementId =
+    storeSelection.size === 1 ? storeSelection.values().next().value ?? null : null;
 
   // ==================== Initial bootstrap ====================
   useEffect(() => {
@@ -264,6 +348,7 @@ export function WorkspaceRoom({
     setBootstrapped(false);
     setBootstrapError(null);
     reset();
+    clearHistory();
     (async () => {
       try {
         const snap = await fetchSnapshot(workspaceId);
@@ -287,7 +372,7 @@ export function WorkspaceRoom({
     return () => {
       cancelled = true;
     };
-  }, [workspaceId, replaceElements, applyOpLocal, setCurrentVersion, setSnapshotVersion, reset]);
+  }, [workspaceId, replaceElements, applyOpLocal, setCurrentVersion, setSnapshotVersion, reset, clearHistory]);
 
   // ==================== Reconnect catch-up ====================
   useEffect(() => {
@@ -371,7 +456,13 @@ export function WorkspaceRoom({
           onPointerMove={onCanvasPointerMove}
           workspaceId={workspaceId}
         >
-          <SelectionLayer onCommit={commitOp} onElementContextMenu={openContextMenu} />
+          <SelectionLayer
+            onCommit={commitOp}
+            onElementContextMenu={openContextMenu}
+            gridStep={snapGridStep}
+          />
+          <SnapGuides />
+          <CommentIndicators workspaceId={workspaceId} />
           <CursorsLayer currentUserId={userId} />
         </WorkspaceCanvas>
 
@@ -380,6 +471,14 @@ export function WorkspaceRoom({
           <div className="pointer-events-auto">
             <WorkspaceToolbar
               workspaceId={workspaceId}
+              onUndo={undo}
+              onRedo={redo}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              snapGridStep={snapGridStep}
+              onToggleSnapGrid={setSnapGridStep}
+              onExportPng={() => exportWorkspaceAsPng(workspaceId)}
+              onExportPdf={() => exportWorkspaceAsPdf(workspaceId)}
               onInsertTable={() => {
                 const state = useWorkspaceStore.getState();
                 const v = state.viewport;
@@ -474,6 +573,15 @@ export function WorkspaceRoom({
           attachedMeetingId={attachedMeetingId}
           onAttachedMeetingChange={onAttachedMeetingChange}
           onInvite={onInvite}
+          selectedElementId={selectedElementId}
+          extras={
+            <PresenterControls
+              workspaceId={workspaceId}
+              presenter={presenter}
+              currentUserId={userId}
+              isOwner={isOwner}
+            />
+          }
           onApplyCommands={(cmds) => {
             // Each command is a self-contained `add` op (or any other op
             // shape the LLM produced — `commitOp` accepts any
