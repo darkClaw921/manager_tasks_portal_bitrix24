@@ -360,6 +360,75 @@ function initializeTables() {
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
     CREATE INDEX IF NOT EXISTS idx_meeting_messages_meeting_created ON meeting_messages(meeting_id, created_at DESC);
+
+    -- ==================== WORKSPACES (Excalidraw-like boards) ====================
+    -- Per-board collaborative drawing surface backed by a unique LiveKit room.
+    -- snapshot_payload holds the merged state for fast initial render; the
+    -- companion workspace_ops table stores append-only mutations since the
+    -- last snapshot for late-join replay (GET /ops?since=<v>).
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      room_name TEXT NOT NULL,
+      meeting_id INTEGER REFERENCES meetings(id) ON DELETE SET NULL,
+      snapshot_version INTEGER NOT NULL DEFAULT 0,
+      snapshot_payload TEXT NOT NULL DEFAULT '{}',
+      snapshot_updated_at TEXT,
+      thumbnail_path TEXT,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS workspaces_room_name_unique ON workspaces(room_name);
+    CREATE INDEX IF NOT EXISTS idx_workspaces_meeting_id ON workspaces(meeting_id);
+    CREATE INDEX IF NOT EXISTS idx_workspaces_owner_id ON workspaces(owner_id);
+
+    CREATE TABLE IF NOT EXISTS workspace_participants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'editor',
+      joined_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      last_seen_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS workspace_participants_ws_user_unique ON workspace_participants(workspace_id, user_id);
+
+    -- Append-only op log for late-join replay. client_op_id deduplicates retries.
+    CREATE TABLE IF NOT EXISTS workspace_ops (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      client_op_id TEXT NOT NULL,
+      base_version INTEGER NOT NULL,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS workspace_ops_ws_client_op_unique ON workspace_ops(workspace_id, client_op_id);
+    CREATE INDEX IF NOT EXISTS idx_workspace_ops_ws_id ON workspace_ops(workspace_id, id);
+
+    CREATE TABLE IF NOT EXISTS workspace_chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      attachments TEXT,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_chat_ws_created ON workspace_chat_messages(workspace_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS workspace_assets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      uploaded_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_assets_ws ON workspace_assets(workspace_id);
   `);
 
   // Migration: create user_portal_access entries for existing portals

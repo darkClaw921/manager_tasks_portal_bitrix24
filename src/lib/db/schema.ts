@@ -380,6 +380,116 @@ export const meetingMessages = sqliteTable('meeting_messages', {
   index('idx_meeting_messages_meeting_created').on(table.meetingId, table.createdAt),
 ]);
 
+// ==================== WORKSPACES ====================
+// A workspace is an Excalidraw-like collaborative drawing surface (canvas of
+// elements: shapes, text, freehand, images, tables…). Each workspace gets its
+// own LiveKit room (UUID `roomName`) over which `workspace_ops` are streamed
+// for realtime collaboration. Snapshots persist the merged state for fast
+// initial load + late-join recovery — `snapshotVersion` is bumped each time
+// `snapshotPayload` is rewritten and used as the high-water mark when fetching
+// op log replays via `GET /api/workspaces/:id/ops?since=<v>`.
+//
+// `meetingId` is a soft link to a `meetings` row (SET NULL on meeting delete)
+// so the same canvas survives meeting end and can be reopened later.
+export const workspaces = sqliteTable('workspaces', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  ownerId: integer('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  // UUID identifying the LiveKit room. Unique to keep room namespaces clean.
+  roomName: text('room_name').notNull(),
+  // Optional anchor to a meeting. SET NULL keeps the workspace alive when the
+  // meeting is deleted — boards live longer than the meeting they were born in.
+  meetingId: integer('meeting_id').references(() => meetings.id, { onDelete: 'set null' }),
+  snapshotVersion: integer('snapshot_version').notNull().default(0),
+  // JSON blob: { elements: { [id]: Element } }. Stored as TEXT so SQLite is
+  // happy; parsing happens in the service layer.
+  snapshotPayload: text('snapshot_payload').notNull().default('{}'),
+  snapshotUpdatedAt: text('snapshot_updated_at'),
+  // Path to a server-rendered preview thumbnail (Phase 3 polish).
+  thumbnailPath: text('thumbnail_path'),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  updatedAt: text('updated_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => [
+  uniqueIndex('workspaces_room_name_unique').on(table.roomName),
+  index('idx_workspaces_meeting_id').on(table.meetingId),
+  index('idx_workspaces_owner_id').on(table.ownerId),
+]);
+
+// ==================== WORKSPACE PARTICIPANTS ====================
+// Mirrors `meeting_participants`: explicit invite list scoped per workspace.
+// `role` controls visibility/edit rights (owner ≅ host, editor can mutate
+// elements, viewer is read-only). UNIQUE(workspaceId, userId) keeps the row
+// idempotent for repeated invites.
+export const workspaceParticipants = sqliteTable('workspace_participants', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workspaceId: integer('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: text('role').notNull().default('editor'), // 'owner' | 'editor' | 'viewer'
+  joinedAt: text('joined_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+  lastSeenAt: text('last_seen_at'),
+}, (table) => [
+  uniqueIndex('workspace_participants_ws_user_unique').on(table.workspaceId, table.userId),
+]);
+
+// ==================== WORKSPACE OPS ====================
+// Append-only log of canvas mutations. Used both as the wire protocol payload
+// (when we eventually want to replay) and as the durable source of truth for
+// "what happened since snapshotVersion N". `clientOpId` is a UUID generated
+// by the client to deduplicate retries — the UNIQUE index makes idempotent
+// writes possible even when the client POSTs the same op twice.
+//
+// `baseVersion` records which snapshot the op was authored against — useful
+// for future server-side rebase/merge logic and conflict diagnostics.
+export const workspaceOps = sqliteTable('workspace_ops', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workspaceId: integer('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  clientOpId: text('client_op_id').notNull(),
+  baseVersion: integer('base_version').notNull(),
+  payload: text('payload').notNull(), // JSON-encoded WorkspaceOp
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => [
+  uniqueIndex('workspace_ops_ws_client_op_unique').on(table.workspaceId, table.clientOpId),
+  index('idx_workspace_ops_ws_id').on(table.workspaceId, table.id),
+]);
+
+// ==================== WORKSPACE CHAT MESSAGES ====================
+// Per-workspace LLM chat history (Phase 1 = simple Q&A, Phase 2 will allow
+// the assistant to emit `commands` payloads alongside the text).
+// `attachments` is a JSON array of {assetId, kind} for AI-generated images
+// or uploads referenced from the message body.
+export const workspaceChatMessages = sqliteTable('workspace_chat_messages', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workspaceId: integer('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(), // 'user' | 'assistant' | 'system'
+  content: text('content').notNull(),
+  attachments: text('attachments'), // JSON: Array<{ assetId: number; kind: string }>
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => [
+  index('idx_workspace_chat_ws_created').on(table.workspaceId, table.createdAt),
+]);
+
+// ==================== WORKSPACE ASSETS ====================
+// Files attached to a workspace: uploads (`upload`) or AI-generated images
+// (`ai`). The `filePath` points at `data/workspace-assets/<id>/<uuid>_<name>`.
+// Image assets carry width/height for layout. `uploadedBy` is nullable to
+// allow AI-generated rows when the producer was the assistant rather than
+// a user — set to NULL when the producing user is later deleted.
+export const workspaceAssets = sqliteTable('workspace_assets', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workspaceId: integer('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'upload' | 'ai'
+  filePath: text('file_path').notNull(),
+  mime: text('mime').notNull(),
+  width: integer('width'),
+  height: integer('height'),
+  uploadedBy: integer('uploaded_by').references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
+}, (table) => [
+  index('idx_workspace_assets_ws').on(table.workspaceId),
+]);
+
 // ==================== Type Exports ====================
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
@@ -455,3 +565,18 @@ export type NewMeetingGuestToken = typeof meetingGuestTokens.$inferInsert;
 
 export type MeetingMessage = typeof meetingMessages.$inferSelect;
 export type NewMeetingMessage = typeof meetingMessages.$inferInsert;
+
+export type Workspace = typeof workspaces.$inferSelect;
+export type NewWorkspace = typeof workspaces.$inferInsert;
+
+export type WorkspaceParticipant = typeof workspaceParticipants.$inferSelect;
+export type NewWorkspaceParticipant = typeof workspaceParticipants.$inferInsert;
+
+export type WorkspaceOpRow = typeof workspaceOps.$inferSelect;
+export type NewWorkspaceOpRow = typeof workspaceOps.$inferInsert;
+
+export type WorkspaceChatMessage = typeof workspaceChatMessages.$inferSelect;
+export type NewWorkspaceChatMessage = typeof workspaceChatMessages.$inferInsert;
+
+export type WorkspaceAsset = typeof workspaceAssets.$inferSelect;
+export type NewWorkspaceAsset = typeof workspaceAssets.$inferInsert;

@@ -10,3 +10,7 @@ export type * from './payment-request';
 export type * from './time-tracking';
 export type * from './wallet';
 export type * from './meeting';
+// Workspace module exports both types AND runtime values (type guards,
+// topic constants). Use the broader `export *` so callers can `import {
+// WORKSPACE_OPS_TOPIC, isOpAdd } from '@/types'`.
+export * from './workspace';

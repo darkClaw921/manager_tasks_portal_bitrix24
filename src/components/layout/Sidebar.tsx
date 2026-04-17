@@ -75,6 +75,14 @@ function MeetingsIcon() {
   );
 }
 
+function WorkspacesIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 6h6m-6 4h6m-6 4h6M3.75 19.5h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Z" />
+    </svg>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
@@ -109,6 +117,7 @@ const NAV_ITEMS = [
   { href: '/payments', label: 'Оплата', icon: <PaymentsIcon /> },
   { href: '/wallet', label: 'Кошелёк', icon: <WalletIcon /> },
   { href: '/meetings', label: 'Встречи', icon: <MeetingsIcon /> },
+  { href: '/workspaces', label: 'Доски', icon: <WorkspacesIcon /> },
   { href: '/settings', label: 'Настройки', icon: <SettingsIcon /> },
 ];
 

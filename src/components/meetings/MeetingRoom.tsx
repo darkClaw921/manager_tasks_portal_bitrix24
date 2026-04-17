@@ -31,10 +31,11 @@ import { ScreenShareView } from './ScreenShareView';
 import { MeetingControls } from './MeetingControls';
 import { ParticipantsList } from './ParticipantsList';
 import { ChatPanel } from './ChatPanel';
+import { MeetingWorkspacesPanel } from './MeetingWorkspacesPanel';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
-type SidebarTab = 'participants' | 'chat';
+type SidebarTab = 'participants' | 'chat' | 'workspaces';
 
 /**
  * localStorage key for remembering the last active sidebar tab so users who
@@ -46,7 +47,7 @@ function readStoredTab(): SidebarTab {
   if (typeof window === 'undefined') return 'participants';
   try {
     const v = window.localStorage.getItem(TAB_STORAGE_KEY);
-    if (v === 'participants' || v === 'chat') return v;
+    if (v === 'participants' || v === 'chat' || v === 'workspaces') return v;
   } catch {
     // noop — localStorage may be unavailable in private mode
   }
@@ -292,6 +293,20 @@ export function MeetingRoom({
               </span>
             )}
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sidebarTab === 'workspaces'}
+            onClick={() => onSelectTab('workspaces')}
+            className={cn(
+              'flex-1 rounded px-3 py-1.5 text-small font-medium transition',
+              sidebarTab === 'workspaces'
+                ? 'bg-primary text-text-inverse'
+                : 'text-text-secondary hover:bg-background'
+            )}
+          >
+            Доски
+          </button>
         </div>
         <div className="min-h-0 flex-1">
           {/* Both panels are mounted at all times: the chat panel must keep
@@ -318,6 +333,16 @@ export function MeetingRoom({
               userId={userId}
               isActive={sidebarTab === 'chat'}
               onNewMessage={onNewChatMessage}
+            />
+          </div>
+          <div
+            role="tabpanel"
+            aria-hidden={sidebarTab !== 'workspaces'}
+            className={cn('h-full', sidebarTab === 'workspaces' ? 'block' : 'hidden')}
+          >
+            <MeetingWorkspacesPanel
+              meetingId={meetingId}
+              isActive={sidebarTab === 'workspaces'}
             />
           </div>
         </div>
