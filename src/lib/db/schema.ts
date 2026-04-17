@@ -182,6 +182,11 @@ export const taskChecklistItems = sqliteTable('task_checklist_items', {
 });
 
 // ==================== TASK FILES ====================
+// Hybrid storage для файлов задачи:
+//  - Bitrix-synced rows: bitrixFileId/name/size/downloadUrl/contentType — из Bitrix API.
+//  - Локальные (для local portal): uploadedBy/filePath/fileName/fileSize/mimeType —
+//    загружены через POST /api/tasks/[id]/files и лежат в data/task-files/.
+// Nullable columns позволяют одной таблице поддерживать оба случая без миграции.
 export const taskFiles = sqliteTable('task_files', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   taskId: integer('task_id').notNull().references(() => tasks.id, { onDelete: 'cascade' }),
@@ -190,8 +195,16 @@ export const taskFiles = sqliteTable('task_files', {
   size: integer('size'),
   downloadUrl: text('download_url'),
   contentType: text('content_type'),
+  // --- local upload columns (nullable for Bitrix-synced rows) ---
+  uploadedBy: integer('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
+  filePath: text('file_path'),
+  fileName: text('file_name'),
+  fileSize: integer('file_size'),
+  mimeType: text('mime_type'),
   createdAt: text('created_at').notNull().default(sql`(CURRENT_TIMESTAMP)`),
-});
+}, (table) => [
+  index('idx_task_files_task_id').on(table.taskId),
+]);
 
 // ==================== TASK RATES ====================
 export const taskRates = sqliteTable('task_rates', {

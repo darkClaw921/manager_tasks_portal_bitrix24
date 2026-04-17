@@ -60,12 +60,23 @@ export interface TaskStage {
   updatedAt: string;
 }
 
+/**
+ * Файл, прикреплённый к комментарию. Единая форма для Bitrix-синхронизированных
+ * и локальных вложений:
+ *  - Bitrix-sync: id = числовой bitrixId (например 123), downloadUrl указывает
+ *    на Bitrix24 URL, filePath отсутствует.
+ *  - Локальные: id = UUID в имени файла на диске (`<uuid>_<safeName>`),
+ *    filePath — абсолютный путь в data/task-comment-files, downloadUrl null.
+ */
 export interface CommentFile {
-  id: number;
+  id: number | string;
   name: string;
   size: number | null;
   downloadUrl: string | null;
   contentType: string | null;
+  // Local-only поля (optional — у Bitrix-sync row их нет)
+  filePath?: string;
+  mime?: string;
 }
 
 export interface TaskComment {
@@ -99,6 +110,12 @@ export interface TaskFile {
   size: number | null;
   downloadUrl: string | null;
   contentType: string | null;
+  // Local upload metadata (null для Bitrix-synced rows)
+  uploadedBy: number | null;
+  filePath: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  mimeType: string | null;
   createdAt: string;
 }
 

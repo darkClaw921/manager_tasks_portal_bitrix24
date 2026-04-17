@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { requireAuth, isAuthError } from '@/lib/auth/guards';
@@ -9,70 +8,16 @@ import {
   createFileMessage,
   inferKindFromMime,
 } from '@/lib/meetings/messages';
+import {
+  validateUpload,
+  saveUploadToDisk,
+  MAX_UPLOAD_BYTES,
+} from '@/lib/uploads/safe-upload';
 
 // Default runtime is fine (nodejs); we need fs + sharp.
 export const runtime = 'nodejs';
 
 type RouteContext = { params: Promise<{ id: string }> };
-
-/** 25 MiB. Enforced at the route layer — Next also clamps the body itself. */
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-
-/**
- * MIME types explicitly blocked regardless of Content-Type spoofing.
- * Kept small on purpose: we reject executables/scripts that browsers may
- * decide to run on download, and let everything else pass through since
- * downloads are served with `Content-Disposition: attachment` by the
- * stream route.
- */
-const BLOCKED_MIMES = new Set<string>([
-  'application/x-msdownload', // .exe / .dll
-  'application/x-msdos-program',
-  'application/x-msi',
-  'application/x-apple-diskimage', // .dmg
-  'application/x-ms-shortcut', // .lnk
-  'application/x-sh',
-  'application/x-bat',
-  'application/vnd.microsoft.portable-executable',
-]);
-
-/** File extensions we refuse even when the MIME looks benign. */
-const BLOCKED_EXTENSIONS = new Set<string>([
-  '.exe',
-  '.bat',
-  '.cmd',
-  '.com',
-  '.scr',
-  '.msi',
-  '.sh',
-  '.app',
-  '.dll',
-  '.jar',
-  '.vbs',
-  '.vbe',
-  '.ps1',
-  '.lnk',
-]);
-
-/**
- * Produce a filesystem-safe basename. Strips path separators, control chars
- * and NUL bytes, collapses whitespace, clamps to 120 chars, and falls back
- * to `upload` when everything gets stripped.
- */
-function sanitizeFileName(raw: string): string {
-  // Use only the basename in case a browser sends a path (IE11 does).
-  const stripped = path.basename(raw);
-  // Replace unsafe characters with underscore.
-  const cleaned = stripped
-    .replace(/[\x00-\x1f\x7f]/g, '')
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!cleaned) return 'upload';
-  // Prevent hidden dotfiles masquerading as extensionless.
-  const safe = cleaned.startsWith('.') ? cleaned.slice(1) : cleaned;
-  return safe.slice(0, 120) || 'upload';
-}
 
 /**
  * Extract image dimensions via `sharp`. Returns `null` if the library cannot
@@ -159,38 +104,22 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // Size check — reject with 413.
-    if (fileEntry.size <= 0) {
+    const validation = validateUpload(fileEntry);
+    if (!validation.valid) {
+      const status = validation.status;
+      const errKey =
+        status === 413
+          ? 'PayloadTooLarge'
+          : status === 415
+            ? 'Forbidden'
+            : 'Validation';
       return NextResponse.json(
-        { error: 'Validation', message: 'File is empty' },
-        { status: 400 }
-      );
-    }
-    if (fileEntry.size > MAX_UPLOAD_BYTES) {
-      return NextResponse.json(
-        {
-          error: 'PayloadTooLarge',
-          message: `File exceeds ${MAX_UPLOAD_BYTES} bytes (${Math.floor(
-            MAX_UPLOAD_BYTES / (1024 * 1024)
-          )} MiB)`,
-        },
-        { status: 413 }
+        { error: errKey, message: validation.reason },
+        { status }
       );
     }
 
-    const originalName = fileEntry.name || 'upload';
-    const safeName = sanitizeFileName(originalName);
-    const ext = path.extname(safeName).toLowerCase();
-    const mimeType = (fileEntry.type || 'application/octet-stream').toLowerCase();
-
-    // Reject dangerous MIME types and extensions.
-    if (BLOCKED_MIMES.has(mimeType) || BLOCKED_EXTENSIONS.has(ext)) {
-      return NextResponse.json(
-        { error: 'Forbidden', message: 'This file type is not allowed' },
-        { status: 415 }
-      );
-    }
-
+    const { safeName, mime: mimeType } = validation;
     const kind = inferKindFromMime(mimeType);
 
     // Read into memory. 25 MiB cap makes this safe; streaming-to-disk would
@@ -232,31 +161,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
       process.env.MEETING_UPLOADS_DIR ??
       path.join(process.cwd(), 'data', 'meeting-uploads');
     const meetingDir = path.join(uploadRoot, String(meetingId));
-    fs.mkdirSync(meetingDir, { recursive: true });
 
-    const storedName = `${randomUUID()}_${safeName}`;
-    const absolutePath = path.join(meetingDir, storedName);
-
-    // Defensive containment: in case `safeName` or `meetingId` introduces
-    // traversal (shouldn't, but the cost of the check is negligible).
-    const resolvedRoot = path.resolve(uploadRoot);
-    const resolvedAbs = path.resolve(absolutePath);
-    if (!resolvedAbs.startsWith(resolvedRoot + path.sep)) {
-      return NextResponse.json(
-        { error: 'Validation', message: 'Invalid upload path' },
-        { status: 400 }
-      );
-    }
-
-    await fs.promises.writeFile(absolutePath, buffer);
+    const saved = await saveUploadToDisk(buffer, {
+      dir: meetingDir,
+      fileName: safeName,
+      mime: mimeType,
+    });
 
     // On DB failure we try to delete the orphaned file to avoid disk leaks.
     let message;
     try {
       message = createFileMessage(meetingId, auth.user.userId, {
-        filePath: absolutePath,
+        filePath: saved.path,
         fileName: safeName,
-        fileSize: buffer.byteLength,
+        fileSize: saved.size,
         mimeType,
         kind,
         width: width ?? undefined,
@@ -264,7 +182,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       });
     } catch (err) {
       try {
-        await fs.promises.unlink(absolutePath);
+        await fs.promises.unlink(saved.path);
       } catch {
         // ignore — deletion is best-effort
       }

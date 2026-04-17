@@ -24,12 +24,33 @@ async function fetchTask(id: number): Promise<TaskDetail> {
 }
 
 // Comments
-async function addComment(taskId: number, message: string): Promise<TaskComment> {
-  const response = await fetch(`/api/tasks/${taskId}/comments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
-  });
+//
+// addComment поддерживает два режима:
+//  - files = undefined/empty → JSON body с { message } (обратная совместимость).
+//  - files[] задан → multipart/form-data (content + files[]) — только для
+//    локальных задач. Браузер сам проставит Content-Type: multipart/form-data
+//    с boundary — поэтому мы НЕ задаём этот заголовок вручную.
+async function addComment(
+  taskId: number,
+  message: string,
+  files?: File[]
+): Promise<TaskComment> {
+  let response: Response;
+  if (files && files.length > 0) {
+    const fd = new FormData();
+    fd.append('content', message);
+    for (const f of files) fd.append('files', f);
+    response = await fetch(`/api/tasks/${taskId}/comments`, {
+      method: 'POST',
+      body: fd,
+    });
+  } else {
+    response = await fetch(`/api/tasks/${taskId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.message || 'Failed to add comment');
@@ -100,15 +121,29 @@ export function useTask(id: number | null) {
 
 /**
  * Hook to add a comment to a task.
+ *
+ * Принимает опциональный `files?: File[]` — если задан, mutation шлёт
+ * multipart/form-data (content + files[]). Backend сохраняет файлы в
+ * data/task-comment-files и пишет `attached_files` JSON.
  */
 export function useAddComment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ taskId, message }: { taskId: number; message: string }) =>
-      addComment(taskId, message),
+    mutationFn: ({
+      taskId,
+      message,
+      files,
+    }: {
+      taskId: number;
+      message: string;
+      files?: File[];
+    }) => addComment(taskId, message, files),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['task', variables.taskId] });
+      // Список файлов задачи не обновляется через комменты, но invalidate
+      // дешёвый — оставляем на всякий.
+      queryClient.invalidateQueries({ queryKey: ['task-files', variables.taskId] });
     },
   });
 }

@@ -17,8 +17,9 @@
  * see `useMeetingRecordings`.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMeetingRecordings } from '@/hooks/useMeeting';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MutableRefObject } from 'react';
+import { useMeetingDetail, useMeetingRecordings } from '@/hooks/useMeeting';
 import type {
   RecordingsManifest,
   ManifestAudioTrack,
@@ -26,6 +27,7 @@ import type {
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { DownloadIcon } from './icons';
+import { RecordingChatTimeline } from './RecordingChatTimeline';
 
 export interface RecordingsListProps {
   meetingId: number;
@@ -62,13 +64,34 @@ function buildStreamUrl(meetingId: number, recordingId: number): string {
 function PlayerPrimary({
   meetingId,
   manifest,
+  videoRef: externalVideoRef,
 }: {
   meetingId: number;
   manifest: RecordingsManifest;
+  /**
+   * Optional external ref — when supplied we forward our inner `<video>`
+   * element to it so the parent can drive playback (e.g., seek the current
+   * time in response to a chat-message click). We still keep our own ref
+   * for the `audioTracks` side-effects.
+   */
+  videoRef?: MutableRefObject<HTMLVideoElement | null>;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [activeTrackIdx, setActiveTrackIdx] = useState<number | null>(null);
   const [audioTracksApiAvailable, setAudioTracksApiAvailable] = useState(false);
+
+  /**
+   * Callback ref that fans the `<video>` element out to both our internal
+   * ref (used by audio-track effects below) and the optional external ref
+   * forwarded from `RecordingsList`.
+   */
+  const setVideoEl = useCallback(
+    (el: HTMLVideoElement | null) => {
+      videoRef.current = el;
+      if (externalVideoRef) externalVideoRef.current = el;
+    },
+    [externalVideoRef]
+  );
 
   // Choose the primary playback file: prefer the mixed MP4 (H.264/AAC,
   // faststart remux) so the <video> element works natively in Safari / iOS /
@@ -119,7 +142,7 @@ function PlayerPrimary({
   return (
     <div className="flex flex-col gap-3">
       <video
-        ref={videoRef}
+        ref={setVideoEl}
         src={primarySrc}
         controls
         playsInline
@@ -227,6 +250,36 @@ function PerUserAudioFallback({
 
 export function RecordingsList({ meetingId, className }: RecordingsListProps) {
   const { data: manifest, isLoading, isError, error } = useMeetingRecordings(meetingId);
+  // Meeting detail powers the "seek to message time" feature inside the chat
+  // timeline — we need `meeting.startedAt` to compute offsets. The detail
+  // endpoint enforces the same `canJoinMeeting` check as the recordings one,
+  // so it's safe to always request here.
+  const { data: meetingDetail } = useMeetingDetail(meetingId);
+
+  // Shared ref — the video element lives inside `PlayerPrimary`, but clicks on
+  // chat bubbles in `RecordingChatTimeline` need to update `currentTime` on the
+  // same element. `PlayerPrimary` forwards the element to this ref via a
+  // callback-ref indirection; if the video hasn't mounted yet (processing /
+  // empty state) the ref stays null and seek clicks silently no-op.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const handleSeekTo = useCallback((offsetSec: number) => {
+    const el = videoRef.current;
+    if (!el) return;
+    // Guard: once `duration` is known (i.e., after loadedmetadata) clamp so
+    // we never seek past the end — Safari otherwise snaps to 0 silently.
+    if (Number.isFinite(el.duration) && el.duration > 0) {
+      el.currentTime = Math.min(offsetSec, Math.max(0, el.duration - 0.1));
+    } else {
+      el.currentTime = Math.max(0, offsetSec);
+    }
+    // Nice-to-have: start playing if paused so the user lands on audio.
+    if (el.paused) {
+      el.play().catch(() => {
+        /* Autoplay policies may reject; ignore. */
+      });
+    }
+  }, []);
 
   const status = manifest?.status;
   const heading = useMemo(() => {
@@ -272,7 +325,27 @@ export function RecordingsList({ meetingId, className }: RecordingsListProps) {
       )}
 
       {manifest && status === 'ready' && (
-        <PlayerPrimary meetingId={meetingId} manifest={manifest} />
+        /* Responsive two-column layout: on desktop (lg+) video takes the
+         * flexible column and the chat timeline a fixed ~320px rail; on
+         * mobile they stack vertically. The timeline column is capped to
+         * `max-h-[520px]` on mobile so the page doesn't grow unbounded. */
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
+          <div className="min-w-0">
+            <PlayerPrimary
+              meetingId={meetingId}
+              manifest={manifest}
+              videoRef={videoRef}
+            />
+          </div>
+          <div className="h-[520px] lg:h-auto lg:min-h-[360px]">
+            <RecordingChatTimeline
+              meetingId={meetingId}
+              meeting={meetingDetail ?? null}
+              onMessageClick={handleSeekTo}
+              className="h-full"
+            />
+          </div>
+        </div>
       )}
     </div>
   );

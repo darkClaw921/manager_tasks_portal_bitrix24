@@ -177,6 +177,7 @@ npm start
 ./scripts/deploy-prod.sh backup     # Бэкап SQLite
 ./scripts/deploy-prod.sh rebuild    # Пересборка
 ```
+на сервере создайте папку infra с нужными yaml для поддержки звонков
 
 ---
 

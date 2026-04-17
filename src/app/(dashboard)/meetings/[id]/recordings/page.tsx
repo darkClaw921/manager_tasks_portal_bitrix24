@@ -8,12 +8,18 @@
  * enforces `canJoinMeeting` and returns 403 to non-participants — we render
  * that message verbatim. `RecordingsList` itself polls the manifest while
  * the post-mux worker is still processing.
+ *
+ * The page header also carries a "Создать задачу" CTA: it seeds
+ * `createTaskPrefill` in `useUIStore` with title/description that reference
+ * this meeting, then opens the `CreateTaskModal` (already mounted at the
+ * dashboard-layout level). The modal clears the prefill on close.
  */
 
 import { use } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { RecordingsList } from '@/components/meetings/RecordingsList';
+import { useUIStore } from '@/stores/ui-store';
 
 function parseMeetingId(raw: string): number | null {
   const n = parseInt(raw, 10);
@@ -29,6 +35,14 @@ function BackIcon() {
   );
 }
 
+function PlusIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+  );
+}
+
 export default function MeetingRecordingsPage({
   params,
 }: {
@@ -36,6 +50,8 @@ export default function MeetingRecordingsPage({
 }) {
   const { id } = use(params);
   const meetingId = parseMeetingId(id);
+  const setCreateTaskPrefill = useUIStore((s) => s.setCreateTaskPrefill);
+  const openModal = useUIStore((s) => s.openModal);
 
   if (meetingId == null) {
     return (
@@ -52,6 +68,17 @@ export default function MeetingRecordingsPage({
     );
   }
 
+  const handleCreateTask = () => {
+    // Seed the prefill just before opening. CreateTaskModal reads it once
+    // via a useEffect + latch, then clears it on close (see ncm.4 changes
+    // in src/components/tasks/CreateTaskModal.tsx).
+    setCreateTaskPrefill({
+      title: `Задача из встречи №${meetingId}`,
+      description: `Источник: /meetings/${meetingId}/recordings`,
+    });
+    openModal('createTask');
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -62,11 +89,22 @@ export default function MeetingRecordingsPage({
           <BackIcon />
           К списку встреч
         </Link>
-        <Link href={`/meetings/${meetingId}`}>
-          <Button type="button" variant="ghost" size="sm">
-            Открыть встречу
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            onClick={handleCreateTask}
+          >
+            <PlusIcon />
+            <span className="hidden sm:inline">Создать задачу</span>
           </Button>
-        </Link>
+          <Link href={`/meetings/${meetingId}`}>
+            <Button type="button" variant="ghost" size="sm">
+              Открыть встречу
+            </Button>
+          </Link>
+        </div>
       </div>
       <RecordingsList meetingId={meetingId} />
     </div>

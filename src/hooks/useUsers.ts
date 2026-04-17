@@ -2,6 +2,23 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
+export interface UserPortalEntry {
+  id: number;
+  domain: string;
+  name: string;
+  color: string;
+  memberId: string;
+  isActive: boolean;
+  lastSyncAt: string | null;
+  createdAt: string;
+  role: 'admin' | 'viewer';
+  canSeeResponsible: boolean;
+  canSeeAccomplice: boolean;
+  canSeeAuditor: boolean;
+  canSeeCreator: boolean;
+  canSeeAll: boolean;
+}
+
 export interface AdminUser {
   id: number;
   email: string;
@@ -64,6 +81,64 @@ export function useUsers() {
       if (!res.ok) throw new Error('Failed to fetch users');
       const data = await res.json();
       return data.data;
+    },
+  });
+}
+
+/**
+ * Fetch the list of portals a user has access to (via user_portal_access).
+ * Admin only — backed by GET /api/users/[id]/portals.
+ */
+export function useUserPortals(userId: number | null) {
+  return useQuery<UserPortalEntry[]>({
+    queryKey: ['user-portals', userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${userId}/portals`);
+      if (!res.ok) throw new Error('Failed to fetch user portals');
+      const data = await res.json();
+      return data.data;
+    },
+    enabled: userId !== null,
+  });
+}
+
+/**
+ * Grant a user access to a portal (admin flow from UserDetailModal).
+ * Calls POST /api/portals/{portalId}/access.
+ */
+export function useGrantUserPortalAccess() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      portalId,
+      userId,
+      role = 'viewer',
+      canSeeResponsible = true,
+    }: {
+      portalId: number;
+      userId: number;
+      role?: 'admin' | 'viewer';
+      canSeeResponsible?: boolean;
+    }) => {
+      const res = await fetch(`/api/portals/${portalId}/access`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, role, canSeeResponsible }),
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.message || 'Failed to grant portal access');
+      }
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      // Refresh user portals so the newly added portal appears
+      queryClient.invalidateQueries({ queryKey: ['user-portals', variables.userId] });
+      // portalCount on users list may have changed
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      // users with access to this portal
+      queryClient.invalidateQueries({ queryKey: ['portal-access', variables.portalId] });
     },
   });
 }

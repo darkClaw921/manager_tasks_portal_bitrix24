@@ -1,12 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import { StatCard } from '@/components/ui/StatCard';
 import { PortalIndicator } from '@/components/ui/PortalIndicator';
-import type { AdminUser } from '@/hooks/useUsers';
+import { useToast } from '@/components/ui/Toast';
+import {
+  useUserPortals,
+  useGrantUserPortalAccess,
+  type AdminUser,
+  type UserPortalEntry,
+} from '@/hooks/useUsers';
+import { usePortals } from '@/hooks/usePortals';
 
 interface UserStats {
   portalCount: number;
@@ -16,16 +23,6 @@ interface UserStats {
   overdue: number;
 }
 
-interface UserPortal {
-  id: number;
-  domain: string;
-  name: string;
-  color: string;
-  isActive: boolean;
-  lastSyncAt: string | null;
-  createdAt: string;
-}
-
 interface UserDetailModalProps {
   user: AdminUser;
   onClose: () => void;
@@ -33,33 +30,44 @@ interface UserDetailModalProps {
 
 export function UserDetailModal({ user, onClose }: UserDetailModalProps) {
   const [stats, setStats] = useState<UserStats | null>(null);
-  const [portals, setPortals] = useState<UserPortal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [selectedPortalId, setSelectedPortalId] = useState<string>('');
+
+  const { toast } = useToast();
+
+  // User portals (via user_portal_access) — admin endpoint
+  const {
+    data: portals = [],
+    isLoading: portalsLoading,
+  } = useUserPortals(user.id);
+
+  // All portals the admin can see (to pick from for granting)
+  const { data: allPortals = [] } = usePortals();
+
+  const grantAccess = useGrantUserPortalAccess();
+
+  // Portals available to add = all portals minus those the user already has
+  const availablePortals = useMemo(() => {
+    const userPortalIds = new Set(portals.map((p: UserPortalEntry) => p.id));
+    return allPortals.filter((p) => !userPortalIds.has(p.id));
+  }, [allPortals, portals]);
 
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
+    async function fetchStats() {
+      setStatsLoading(true);
       try {
-        const [statsRes, portalsRes] = await Promise.all([
-          fetch(`/api/users/${user.id}/stats`),
-          fetch(`/api/users/${user.id}/portals`),
-        ]);
-
+        const statsRes = await fetch(`/api/users/${user.id}/stats`);
         if (statsRes.ok) {
           const statsData = await statsRes.json();
           setStats(statsData.data);
         }
-        if (portalsRes.ok) {
-          const portalsData = await portalsRes.json();
-          setPortals(portalsData.data);
-        }
       } catch (err) {
-        console.error('Failed to fetch user details:', err);
+        console.error('Failed to fetch user stats:', err);
       } finally {
-        setLoading(false);
+        setStatsLoading(false);
       }
     }
-    fetchData();
+    fetchStats();
   }, [user.id]);
 
   // Close on Escape
@@ -84,6 +92,31 @@ export function UserDetailModal({ user, onClose }: UserDetailModalProps) {
     } catch {
       return dateStr;
     }
+  };
+
+  const handleAddPortal = () => {
+    if (!selectedPortalId) return;
+    const portalId = parseInt(selectedPortalId, 10);
+    if (isNaN(portalId)) return;
+
+    grantAccess.mutate(
+      {
+        portalId,
+        userId: user.id,
+        role: 'viewer',
+        canSeeResponsible: true,
+      },
+      {
+        onSuccess: () => {
+          toast('success', 'Портал добавлен');
+          setSelectedPortalId('');
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : 'Не удалось добавить портал';
+          toast('error', msg);
+        },
+      }
+    );
   };
 
   return (
@@ -118,7 +151,7 @@ export function UserDetailModal({ user, onClose }: UserDetailModalProps) {
 
         <div className="p-6 space-y-6">
           {/* Stats */}
-          {loading ? (
+          {statsLoading ? (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="bg-background rounded-card p-4 animate-pulse">
@@ -155,7 +188,7 @@ export function UserDetailModal({ user, onClose }: UserDetailModalProps) {
           {/* Portals */}
           <div>
             <h3 className="text-small font-semibold text-foreground mb-3">Connected Portals</h3>
-            {loading ? (
+            {portalsLoading ? (
               <div className="space-y-2">
                 {[1, 2].map((i) => (
                   <div key={i} className="flex items-center gap-3 p-3 rounded-input border border-border animate-pulse">
@@ -184,6 +217,12 @@ export function UserDetailModal({ user, onClose }: UserDetailModalProps) {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge
+                        variant={portal.role === 'admin' ? 'primary' : 'default'}
+                        size="sm"
+                      >
+                        {portal.role === 'admin' ? 'Admin' : 'Viewer'}
+                      </Badge>
+                      <Badge
                         variant={portal.isActive ? 'success' : 'default'}
                         size="sm"
                       >
@@ -198,6 +237,43 @@ export function UserDetailModal({ user, onClose }: UserDetailModalProps) {
                   </div>
                 ))}
               </div>
+            )}
+
+            {/* Add portal picker */}
+            <div className="mt-4 flex items-center gap-2">
+              <select
+                value={selectedPortalId}
+                onChange={(e) => setSelectedPortalId(e.target.value)}
+                disabled={availablePortals.length === 0 || grantAccess.isPending}
+                className="flex-1 min-w-0 bg-background border border-border rounded-input px-3 py-2 text-small text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
+              >
+                <option value="">
+                  {availablePortals.length === 0
+                    ? 'Нет доступных порталов'
+                    : 'Выберите портал…'}
+                </option>
+                {availablePortals.map((p) => (
+                  <option key={p.id} value={String(p.id)}>
+                    {p.name || p.domain} ({p.domain})
+                  </option>
+                ))}
+              </select>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleAddPortal}
+                loading={grantAccess.isPending}
+                disabled={!selectedPortalId || grantAccess.isPending}
+              >
+                Добавить
+              </Button>
+            </div>
+            {grantAccess.isError && (
+              <p className="mt-2 text-xs text-danger">
+                {grantAccess.error instanceof Error
+                  ? grantAccess.error.message
+                  : 'Ошибка при добавлении портала'}
+              </p>
             )}
           </div>
 

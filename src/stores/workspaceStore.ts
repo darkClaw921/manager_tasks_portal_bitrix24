@@ -331,8 +331,8 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set) => ({
         const oldZoom = state.viewport.zoom;
         // Screen position of anchor before: (anchorWorld - viewport) * oldZoom
         // After zoom: keep that screen position constant → solve for new (x, y).
-        x = anchorWorld.x - (anchorWorld.x - x) * (next / oldZoom);
-        y = anchorWorld.y - (anchorWorld.y - y) * (next / oldZoom);
+        x = anchorWorld.x - (anchorWorld.x - x) * (oldZoom / next);
+        y = anchorWorld.y - (anchorWorld.y - y) * (oldZoom / next);
       }
       return { ...state, viewport: { x, y, zoom: next } };
     }),

@@ -66,7 +66,10 @@ function ProgressBar({
         <span>
           {currencyFormatter.format(paid)} / {currencyFormatter.format(expected)}
         </span>
-        <span>{percent}%</span>
+        <span>
+          {percent}%
+          {percent < 100 && ` · осталось ${currencyFormatter.format(Math.max(0, expected - paid))}`}
+        </span>
       </div>
       <div className="w-full h-1.5 bg-background rounded-full overflow-hidden border border-border">
         <div

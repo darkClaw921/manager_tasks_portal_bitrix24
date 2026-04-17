@@ -265,15 +265,21 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
   // isLocal is driven by portalDomain joined into the task payload by the API
   const isLocal = task?.portalDomain === 'local';
 
-  // Current viewer's admin flag — used to expose the "rates for other
-  // participants" section in the sidebar. Fetched once on mount.
+  // Current viewer's admin flag + userId — admin flag opens the "rates for
+  // other participants" section in the sidebar, userId is used to decide
+  // who may delete a task file (author or portal admin).
   const [isAdmin, setIsAdmin] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch('/api/auth/me')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (!cancelled) setIsAdmin(!!d?.user?.isAdmin);
+        if (!cancelled) {
+          setIsAdmin(!!d?.user?.isAdmin);
+          const rawId = d?.user?.userId ?? d?.user?.id;
+          setCurrentUserId(typeof rawId === 'number' ? rawId : null);
+        }
       })
       .catch(() => {});
     return () => {
@@ -638,10 +644,17 @@ export function TaskDetail({ taskId }: TaskDetailProps) {
           <Comments
             taskId={taskId}
             comments={task.comments || []}
+            isLocal={isLocal}
           />
 
-          {/* Files */}
-          <Files files={task.files || []} />
+          {/* Files / Вложения */}
+          <Files
+            files={task.files || []}
+            taskId={taskId}
+            isLocal={isLocal}
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
+          />
         </div>
 
         {/* Right sidebar */}

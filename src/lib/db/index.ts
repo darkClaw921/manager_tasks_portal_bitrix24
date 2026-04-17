@@ -157,8 +157,14 @@ function initializeTables() {
       size INTEGER,
       download_url TEXT,
       content_type TEXT,
+      uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      file_path TEXT,
+      file_name TEXT,
+      file_size INTEGER,
+      mime_type TEXT,
       created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
+    CREATE INDEX IF NOT EXISTS idx_task_files_task_id ON task_files(task_id);
 
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -543,6 +549,40 @@ if (!IS_BUILD_PHASE) {
     sqlite.exec(`ALTER TABLE meetings ADD COLUMN empty_since TEXT`);
   } catch {
     // Column already exists — ignore
+  }
+
+  // Migration: add local-upload columns to task_files for Phase 4 (локальные
+  // задачи могут иметь файлы, загруженные в data/task-files). Existing
+  // Bitrix-synced rows остаются с NULL в новых колонках.
+  try {
+    sqlite.exec(`ALTER TABLE task_files ADD COLUMN uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    sqlite.exec(`ALTER TABLE task_files ADD COLUMN file_path TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    sqlite.exec(`ALTER TABLE task_files ADD COLUMN file_name TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    sqlite.exec(`ALTER TABLE task_files ADD COLUMN file_size INTEGER`);
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    sqlite.exec(`ALTER TABLE task_files ADD COLUMN mime_type TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_task_files_task_id ON task_files(task_id)`);
+  } catch {
+    // Ignore
   }
 
   // Seed admin user (async, runs in background on first load),

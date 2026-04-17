@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent, type ChangeEvent } from 'react';
 import { useAddComment } from '@/hooks/useTask';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
@@ -10,6 +10,8 @@ import { sanitizeHtml } from '@/lib/utils/sanitize';
 export interface CommentsProps {
   taskId: number;
   comments: TaskComment[];
+  /** Локальная ли задача — включает прикрепление файлов в форме. */
+  isLocal?: boolean;
 }
 
 function formatDate(dateStr: string | null): string {
@@ -40,31 +42,46 @@ function formatFileSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function CommentFiles({ files }: { files: CommentFile[] }) {
+function CommentFiles({
+  files,
+  taskId,
+}: {
+  files: CommentFile[];
+  taskId: number;
+}) {
   return (
     <div className="mt-2 space-y-1">
-      {files.map((file) => (
-        <div key={file.id} className="flex items-center gap-2 text-small">
-          <PaperclipIcon />
-          {file.downloadUrl ? (
-            <a
-              href={file.downloadUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline truncate"
-            >
-              {file.name}
-            </a>
-          ) : (
-            <span className="text-text-secondary truncate">{file.name}</span>
-          )}
-          {file.size != null && file.size > 0 && (
-            <span className="text-xs text-text-muted shrink-0">
-              {formatFileSize(file.size)}
-            </span>
-          )}
-        </div>
-      ))}
+      {files.map((file) => {
+        // Для Bitrix-sync — downloadUrl есть. Для локальных (string id, нет
+        // downloadUrl) — используем новый stream-роут.
+        const href =
+          file.downloadUrl ||
+          (file.filePath || typeof file.id === 'string'
+            ? `/api/tasks/${taskId}/comments/files/${file.id}`
+            : null);
+        return (
+          <div key={String(file.id)} className="flex items-center gap-2 text-small">
+            <PaperclipIcon />
+            {href ? (
+              <a
+                href={href}
+                target={file.downloadUrl ? '_blank' : undefined}
+                rel={file.downloadUrl ? 'noopener noreferrer' : undefined}
+                className="text-primary hover:underline truncate"
+              >
+                {file.name}
+              </a>
+            ) : (
+              <span className="text-text-secondary truncate">{file.name}</span>
+            )}
+            {file.size != null && file.size > 0 && (
+              <span className="text-xs text-text-muted shrink-0">
+                {formatFileSize(file.size)}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -77,8 +94,18 @@ function SendIcon() {
   );
 }
 
-export function Comments({ taskId, comments }: CommentsProps) {
+function CloseIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+    </svg>
+  );
+}
+
+export function Comments({ taskId, comments, isLocal = false }: CommentsProps) {
   const [message, setMessage] = useState('');
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const addComment = useAddComment();
   const commentsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -90,15 +117,33 @@ export function Comments({ taskId, comments }: CommentsProps) {
     }
   }, [comments.length]);
 
+  function handleFilesPicked(e: ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length > 0) {
+      setPendingFiles((prev) => [...prev, ...picked]);
+    }
+    e.target.value = '';
+  }
+
+  function removePendingFile(index: number) {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!message.trim()) return;
+    const trimmed = message.trim();
+    if (!trimmed && pendingFiles.length === 0) return;
 
     addComment.mutate(
-      { taskId, message: message.trim() },
+      {
+        taskId,
+        message: trimmed,
+        files: pendingFiles.length > 0 ? pendingFiles : undefined,
+      },
       {
         onSuccess: () => {
           setMessage('');
+          setPendingFiles([]);
         },
       }
     );
@@ -150,7 +195,7 @@ export function Comments({ taskId, comments }: CommentsProps) {
                     />
                   )}
                   {comment.attachedFiles && comment.attachedFiles.length > 0 && (
-                    <CommentFiles files={comment.attachedFiles} />
+                    <CommentFiles files={comment.attachedFiles} taskId={taskId} />
                   )}
                 </div>
               </div>
@@ -159,8 +204,54 @@ export function Comments({ taskId, comments }: CommentsProps) {
         )}
       </div>
 
+      {/* Pending file previews — показываем перед формой */}
+      {pendingFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {pendingFiles.map((f, idx) => (
+            <span
+              key={`${f.name}-${idx}`}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-background border border-border text-small text-foreground"
+            >
+              <PaperclipIcon />
+              <span className="truncate max-w-[160px]">{f.name}</span>
+              <span className="text-xs text-text-muted">
+                {formatFileSize(f.size)}
+              </span>
+              <button
+                type="button"
+                onClick={() => removePendingFile(idx)}
+                className="p-0.5 rounded-full text-text-secondary hover:text-danger hover:bg-danger/10 transition-colors"
+                aria-label="Убрать"
+              >
+                <CloseIcon />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Add comment form */}
-      <form onSubmit={handleSubmit} className="flex gap-2">
+      <form onSubmit={handleSubmit} className="flex items-center gap-2">
+        {isLocal && (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFilesPicked}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 rounded-input border border-border bg-surface text-text-secondary hover:text-primary hover:border-primary transition-colors"
+              title="Прикрепить файлы"
+              aria-label="Прикрепить файлы"
+            >
+              <PaperclipIcon />
+            </button>
+          </>
+        )}
         <input
           type="text"
           value={message}
@@ -173,7 +264,7 @@ export function Comments({ taskId, comments }: CommentsProps) {
           variant="primary"
           size="sm"
           loading={addComment.isPending}
-          disabled={!message.trim()}
+          disabled={!message.trim() && pendingFiles.length === 0}
         >
           <SendIcon />
         </Button>
