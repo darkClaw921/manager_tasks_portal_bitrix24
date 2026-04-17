@@ -73,13 +73,20 @@ env_get() {
     grep "^${var}=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true
 }
 
+FORCE_NOCACHE=false
+
 env_set() {
     local var="$1" value="$2"
+    local old
+    old=$(env_get "$var")
     if grep -q "^${var}=" "$ENV_FILE" 2>/dev/null; then
         local tmp="${ENV_FILE}.tmp"
         awk -v k="${var}" -v v="${value}" 'BEGIN{FS=OFS="="} $1==k{$0=k"="v} {print}' "$ENV_FILE" > "$tmp" && mv "$tmp" "$ENV_FILE"
     else
         echo "${var}=${value}" >> "$ENV_FILE"
+    fi
+    if [[ "$var" == NEXT_PUBLIC_* ]] && [ "$old" != "$value" ]; then
+        FORCE_NOCACHE=true
     fi
 }
 
@@ -307,6 +314,114 @@ check_livekit_yaml_sync() {
         ok "livekit.yaml содержит LIVEKIT_API_KEY"
     else
         SERVER_WARNINGS+=("infra/livekit.yaml: LIVEKIT_API_KEY не совпадает — запустить node scripts/sync-livekit-keys.mjs")
+    fi
+}
+
+need_sudo() {
+    if [ "$(id -u)" -eq 0 ]; then
+        SUDO=""
+    else
+        SUDO="sudo"
+    fi
+}
+
+offer_fixes() {
+    step "Автоисправления (каждое требует подтверждения)"
+    need_sudo
+
+    local app_host livekit_host
+    app_host=$(env_get NEXT_PUBLIC_APP_URL | sed -E 's|^https?://||; s|/.*||')
+    livekit_host=$(env_get NEXT_PUBLIC_LIVEKIT_URL | sed -E 's|^wss?://||; s|/.*||')
+
+    if command -v ufw &>/dev/null; then
+        if ! ufw status 2>/dev/null | grep -qE "7881.*(ALLOW|allow)"; then
+            if ask_yn "Исправить: открыть 7881/tcp (LiveKit TCP fallback) через ufw?" "y"; then
+                $SUDO ufw allow 7881/tcp && ok "ufw: 7881/tcp открыт" || warn "ufw не удалось"
+            fi
+        fi
+        if ! ufw status 2>/dev/null | grep -qE "50000.*50100.*(ALLOW|allow)"; then
+            if ask_yn "Исправить: открыть 50000:50100/udp (WebRTC media) через ufw?" "y"; then
+                $SUDO ufw allow 50000:50100/udp && ok "ufw: 50000-50100/udp открыт" || warn "ufw не удалось"
+            fi
+        fi
+    fi
+
+    if [ -n "$livekit_host" ] && [ -d /etc/nginx ]; then
+        local nginx_conf="/etc/nginx/sites-available/${livekit_host}.conf"
+        local enabled="/etc/nginx/sites-enabled/${livekit_host}.conf"
+        local has_site=false
+        grep -rslE "server_name.*${livekit_host//./\\.}" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -1 | grep -q . && has_site=true
+
+        if ! $has_site; then
+            echo ""
+            info "Будет создан файл: ${nginx_conf}"
+            info "Содержимое: reverse proxy 127.0.0.1:7880 с WebSocket upgrade, listen 80"
+            if ask_yn "Исправить: создать nginx site ${livekit_host}?" "y"; then
+                $SUDO tee "$nginx_conf" >/dev/null <<NGINX
+server {
+    server_name ${livekit_host};
+
+    location / {
+        proxy_pass http://127.0.0.1:7880;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    listen 80;
+    listen [::]:80;
+}
+NGINX
+                $SUDO ln -sf "$nginx_conf" "$enabled"
+                if $SUDO nginx -t; then
+                    $SUDO systemctl reload nginx && ok "nginx site ${livekit_host} создан (HTTP)"
+                else
+                    error "nginx -t failed — config не применён"
+                fi
+            fi
+        fi
+
+        if [ ! -d "/etc/letsencrypt/live/${livekit_host}" ] && command -v certbot &>/dev/null; then
+            local admin_email
+            admin_email=$(env_get ADMIN_EMAIL)
+            echo ""
+            info "certbot выпустит Let's Encrypt для ${livekit_host} и добавит redirect 80→443"
+            if ask_yn "Исправить: выпустить TLS-сертификат для ${livekit_host}?" "y"; then
+                $SUDO certbot --nginx -d "$livekit_host" --non-interactive --agree-tos -m "${admin_email:-admin@${app_host}}" --redirect \
+                    && ok "TLS выпущен для ${livekit_host}" \
+                    || error "certbot не смог выпустить сертификат"
+            fi
+        fi
+    fi
+
+    local env_key yaml="$PROJECT_DIR/infra/livekit.yaml"
+    env_key=$(env_get LIVEKIT_API_KEY)
+    if [ -f "$yaml" ] && [ -n "$env_key" ] && ! grep -qE "^\s*${env_key}\s*:" "$yaml"; then
+        if ask_yn "Исправить: синхронизировать LIVEKIT_API_KEY в infra/livekit.yaml?" "y"; then
+            if [ -f "$PROJECT_DIR/scripts/sync-livekit-keys.mjs" ]; then
+                (cd "$PROJECT_DIR" && node scripts/sync-livekit-keys.mjs) \
+                    && ok "livekit.yaml синхронизирован" \
+                    || warn "sync-livekit-keys.mjs завершился с ошибкой"
+            else
+                warn "scripts/sync-livekit-keys.mjs отсутствует — править вручную"
+            fi
+        fi
+    fi
+
+    local vp nvp
+    vp=$(env_get VAPID_PUBLIC_KEY)
+    nvp=$(env_get NEXT_PUBLIC_VAPID_PUBLIC_KEY)
+    if [ -n "$vp" ] && [ -n "$nvp" ] && [ "$vp" != "$nvp" ]; then
+        if ask_yn "Исправить: NEXT_PUBLIC_VAPID_PUBLIC_KEY ← VAPID_PUBLIC_KEY?" "y"; then
+            env_set NEXT_PUBLIC_VAPID_PUBLIC_KEY "$vp"
+            ok "VAPID keys синхронизированы"
+        fi
     fi
 }
 
@@ -560,6 +675,22 @@ check_server_config
 check_nginx_sites
 check_livekit_yaml_sync
 
+if [ ${#SERVER_WARNINGS[@]} -gt 0 ] && [ "$INTERACTIVE" = true ]; then
+    echo ""
+    warn "Обнаружены предупреждения:"
+    for w in "${SERVER_WARNINGS[@]}"; do
+        echo "    - $w"
+    done
+    echo ""
+    if ask_yn "Запустить автоисправления (каждое с апрувом)?" "y"; then
+        offer_fixes
+        SERVER_WARNINGS=()
+        check_server_config
+        check_nginx_sites
+        check_livekit_yaml_sync
+    fi
+fi
+
 APP_URL=$(env_get NEXT_PUBLIC_APP_URL)
 LK_URL=$(env_get NEXT_PUBLIC_LIVEKIT_URL)
 
@@ -613,8 +744,14 @@ if docker compose ps --format json 2>/dev/null | grep -q "taskhub"; then
 fi
 
 # 4. Build image
-info "Building Docker image..."
-docker compose build
+BUILD_FLAGS=""
+if [ "$COMMAND" = "rebuild" ] || [ "$FORCE_NOCACHE" = true ]; then
+    BUILD_FLAGS="--no-cache"
+    info "Building Docker image (--no-cache: ${COMMAND}${FORCE_NOCACHE:+ / NEXT_PUBLIC_* изменены})..."
+else
+    info "Building Docker image..."
+fi
+docker compose build $BUILD_FLAGS
 ok "Image built"
 
 # 5. Start container
