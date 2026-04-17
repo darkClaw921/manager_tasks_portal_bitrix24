@@ -231,14 +231,20 @@ check_server_config() {
         local ufw_status
         ufw_status=$(ufw status 2>/dev/null | head -1 || echo "")
         ok "ufw: ${ufw_status}"
-        if ! ufw status 2>/dev/null | grep -qE "7881.*(ALLOW|allow)"; then
-            SERVER_WARNINGS+=("ufw: 7881/tcp не открыт (LiveKit TCP fallback)")
-        fi
-        if ! ufw status 2>/dev/null | grep -qE "50000.*50100.*(ALLOW|allow)"; then
-            SERVER_WARNINGS+=("ufw: 50000-50100/udp не открыт (WebRTC media)")
+        if echo "$ufw_status" | grep -qi inactive; then
+            info "ufw inactive — firewall выключен, все порты доступны. Проверки правил пропущены."
+        else
+            local ufw_rules
+            ufw_rules=$(ufw show added 2>/dev/null || echo "")
+            if ! echo "$ufw_rules" | grep -qE "allow\s+7881/tcp"; then
+                SERVER_WARNINGS+=("ufw: 7881/tcp не открыт (LiveKit TCP fallback)")
+            fi
+            if ! echo "$ufw_rules" | grep -qE "allow\s+50000:50100/udp"; then
+                SERVER_WARNINGS+=("ufw: 50000-50100/udp не открыт (WebRTC media)")
+            fi
         fi
     else
-        SERVER_WARNINGS+=("ufw не установлен — проверьте firewall вручную")
+        info "ufw не установлен — firewall-проверки пропущены"
     fi
 
     if command -v dig &> /dev/null; then
@@ -334,14 +340,20 @@ offer_fixes() {
     livekit_host=$(env_get NEXT_PUBLIC_LIVEKIT_URL | sed -E 's|^wss?://||; s|/.*||')
 
     if command -v ufw &>/dev/null; then
-        if ! ufw status 2>/dev/null | grep -qE "7881.*(ALLOW|allow)"; then
-            if ask_yn "Исправить: открыть 7881/tcp (LiveKit TCP fallback) через ufw?" "y"; then
-                $SUDO ufw allow 7881/tcp && ok "ufw: 7881/tcp открыт" || warn "ufw не удалось"
+        if $SUDO ufw status 2>/dev/null | grep -qi inactive; then
+            info "ufw inactive — автоисправления ufw пропущены"
+        else
+            local ufw_rules
+            ufw_rules=$($SUDO ufw show added 2>/dev/null || echo "")
+            if ! echo "$ufw_rules" | grep -qE "allow\s+7881/tcp"; then
+                if ask_yn "Исправить: открыть 7881/tcp (LiveKit TCP fallback) через ufw?" "y"; then
+                    $SUDO ufw allow 7881/tcp && ok "ufw: 7881/tcp открыт" || warn "ufw не удалось"
+                fi
             fi
-        fi
-        if ! ufw status 2>/dev/null | grep -qE "50000.*50100.*(ALLOW|allow)"; then
-            if ask_yn "Исправить: открыть 50000:50100/udp (WebRTC media) через ufw?" "y"; then
-                $SUDO ufw allow 50000:50100/udp && ok "ufw: 50000-50100/udp открыт" || warn "ufw не удалось"
+            if ! echo "$ufw_rules" | grep -qE "allow\s+50000:50100/udp"; then
+                if ask_yn "Исправить: открыть 50000:50100/udp (WebRTC media) через ufw?" "y"; then
+                    $SUDO ufw allow 50000:50100/udp && ok "ufw: 50000-50100/udp открыт" || warn "ufw не удалось"
+                fi
             fi
         fi
     fi
