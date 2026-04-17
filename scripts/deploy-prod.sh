@@ -278,10 +278,10 @@ check_nginx_sites() {
     local found_app=false found_livekit=false
     for d in "${nginx_dirs[@]}"; do
         [ -d "$d" ] || continue
-        if grep -rslE "server_name.*${app_host//./\\.}" "$d" 2>/dev/null | head -1 | grep -q .; then
+        if grep -RslE "server_name.*${app_host//./\\.}" "$d" 2>/dev/null | head -1 | grep -q .; then
             found_app=true
         fi
-        if [ -n "$livekit_host" ] && grep -rslE "server_name.*${livekit_host//./\\.}" "$d" 2>/dev/null | head -1 | grep -q .; then
+        if [ -n "$livekit_host" ] && grep -RslE "server_name.*${livekit_host//./\\.}" "$d" 2>/dev/null | head -1 | grep -q .; then
             found_livekit=true
         fi
     done
@@ -350,7 +350,7 @@ offer_fixes() {
         local nginx_conf="/etc/nginx/sites-available/${livekit_host}.conf"
         local enabled="/etc/nginx/sites-enabled/${livekit_host}.conf"
         local has_site=false
-        grep -rslE "server_name.*${livekit_host//./\\.}" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -1 | grep -q . && has_site=true
+        grep -RslE "server_name.*${livekit_host//./\\.}" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | head -1 | grep -q . && has_site=true
 
         if ! $has_site; then
             echo ""
