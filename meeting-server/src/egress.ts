@@ -138,8 +138,9 @@ export async function startTrackEgress(
     );
   }
 
-  // Canonical path uses egressId (for uniqueness across re-publications).
-  const filePath = audioTrackFilePath(input.meetingId, input.userId, egressId);
+  // LiveKit writes the file to `provisionalFilePath` as-is — that is the
+  // real on-disk path. Persist it verbatim so the muxer can locate it.
+  const filePath = provisionalFilePath;
 
   insertRecording({
     meetingId: input.meetingId,
