@@ -547,10 +547,24 @@ export function SelectionLayer({
   );
 
   // Cancel editing when selection changes elsewhere.
+  //
+  // IMPORTANT: we must NOT depend on the `selection` Set itself — the store
+  // rebuilds that Set on every op (including transform ops from remote peers),
+  // so the ref changes even when membership is identical. That would re-run
+  // the effect and call setEditing(null) mid-typing, unmounting TableEditor
+  // and killing focus.
+  //
+  // Instead we subscribe to a derived boolean: "does selection currently
+  // contain editing.id?". Zustand compares the selector's return value
+  // (strict equality for primitives), so the component only re-renders when
+  // the boolean flips — not whenever a new Set is committed.
+  const editingStillSelected = useWorkspaceStore((s) =>
+    editing ? s.selection.has(editing.id) : true
+  );
   useEffect(() => {
     if (!editing) return;
-    if (!selection.has(editing.id)) setEditing(null);
-  }, [editing, selection]);
+    if (!editingStillSelected) setEditing(null);
+  }, [editing, editingStillSelected]);
 
   // ==================== Render ====================
 

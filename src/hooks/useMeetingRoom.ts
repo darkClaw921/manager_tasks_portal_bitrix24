@@ -230,12 +230,16 @@ export function useMeetingRoom({
           try {
             await r.localParticipant.setMicrophoneEnabled(true);
           } catch (err) {
-            console.warn('[useMeetingRoom] mic enable failed:', err);
+            if ((err as { name?: string })?.name !== 'NotAllowedError') {
+              console.warn('[useMeetingRoom] mic enable failed:', err);
+            }
           }
           try {
             await r.localParticipant.setCameraEnabled(true);
           } catch (err) {
-            console.warn('[useMeetingRoom] cam enable failed:', err);
+            if ((err as { name?: string })?.name !== 'NotAllowedError') {
+              console.warn('[useMeetingRoom] cam enable failed:', err);
+            }
           }
         }
       } catch (err) {

@@ -127,7 +127,14 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[payments/export] GET error:', error);
+    console.error('[payments/export] GET error', {
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : undefined,
+      stack: error instanceof Error ? error.stack : undefined,
+      cause: error instanceof Error ? (error as Error & { cause?: unknown }).cause : undefined,
+      cwd: process.cwd(),
+      url: request.url,
+    });
     return NextResponse.json(
       { error: 'Internal', message: 'Failed to export payments' },
       { status: 500 }

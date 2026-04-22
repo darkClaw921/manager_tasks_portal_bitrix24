@@ -88,7 +88,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         'Cache-Control': 'private, max-age=86400, immutable',
         // Show inline (not download) for browser image rendering. The
         // basename is sanitised by `saveAsset` so it is safe to emit.
-        'Content-Disposition': `inline; filename="${file.fileName.replace(/"/g, '')}"`,
+        'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
       },
     });
   } catch (error) {

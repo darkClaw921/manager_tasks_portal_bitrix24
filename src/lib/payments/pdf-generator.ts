@@ -1,6 +1,15 @@
 import path from 'path';
+import { createRequire } from 'module';
 import type { TDocumentDefinitions, Content, TableCell } from 'pdfmake/interfaces';
 import type { TaskRateWithTask, PaymentSummary } from '@/types/payment';
+
+// createRequire yields a native Node require at runtime. We pair it with a
+// dynamically constructed specifier (string concatenation) so webpack's static
+// analyzer cannot detect a literal path and thus will NOT pull the .ttf files
+// into the bundle as asset modules. The .ttf files are instead copied into the
+// standalone output via outputFileTracingIncludes in next.config.ts.
+// __filename is available because this file compiles to CJS in the Node bundle.
+const nodeRequire = createRequire(__filename);
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const pdfmake = require('pdfmake');
@@ -10,8 +19,14 @@ let fontsInitialized = false;
 function ensureFonts(): void {
   if (fontsInitialized) return;
 
-  // Use process.cwd() at runtime — webpack cannot mangle this unlike require.resolve
-  const fontDir = path.join(process.cwd(), 'node_modules', 'pdfmake', 'build', 'fonts', 'Roboto');
+  // Build the specifier dynamically so webpack cannot resolve it at build time.
+  // At runtime, Node's require.resolve still walks node_modules correctly — this
+  // works regardless of process.cwd() (important for Next.js standalone where
+  // cwd=/app but pdfmake lives under /app/.next/standalone/node_modules).
+  const pkg = 'pdfmake';
+  const fontSubpath = '/build/fonts/Roboto/Roboto-Regular.ttf';
+  const robotoRegular = nodeRequire.resolve(pkg + fontSubpath);
+  const fontDir = path.dirname(robotoRegular);
 
   pdfmake.addFonts({
     Roboto: {
@@ -368,12 +383,31 @@ function buildModernDoc(params: GeneratePaymentReportParams): TDocumentDefinitio
 export async function generatePaymentReport(
   params: GeneratePaymentReportParams
 ): Promise<Buffer> {
-  ensureFonts();
+  try {
+    ensureFonts();
+  } catch (err) {
+    console.error('[pdf-generator] Failed to initialize pdfmake fonts', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      cwd: process.cwd(),
+    });
+    throw err;
+  }
 
   const design = params.design ?? 'official';
   const docDefinition = design === 'modern' ? buildModernDoc(params) : buildOfficialDoc(params);
 
-  const pdf = pdfmake.createPdf(docDefinition);
-  const buffer = await pdf.getBuffer();
-  return Buffer.from(buffer);
+  try {
+    const pdf = pdfmake.createPdf(docDefinition);
+    const buffer = await pdf.getBuffer();
+    return Buffer.from(buffer);
+  } catch (err) {
+    console.error('[pdf-generator] pdf.getBuffer() failed', {
+      design,
+      rateCount: params.rates.length,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    throw err;
+  }
 }

@@ -24,7 +24,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useMeetings, useMeetingDetail } from '@/hooks/useMeeting';
 import { Button } from '@/components/ui/Button';
 
@@ -101,6 +101,16 @@ function AttachedView({
   onChanged,
 }: SubViewCommon & { meetingId: number; isOwner: boolean }) {
   const { data: meeting } = useMeetingDetail(meetingId);
+  const router = useRouter();
+
+  const onOpenMeeting = useCallback(() => {
+    if (typeof window !== 'undefined' && window.opener && !window.opener.closed) {
+      window.opener.focus();
+      window.close();
+    } else {
+      router.push(`/meetings/${meetingId}`);
+    }
+  }, [meetingId, router]);
 
   const onDetach = useCallback(async () => {
     if (!confirm('Открепить эту доску от встречи?')) return;
@@ -128,12 +138,13 @@ function AttachedView({
       <div className="text-xs uppercase tracking-wide text-text-secondary mb-1">
         Привязано к встрече
       </div>
-      <Link
-        href={`/meetings/${meetingId}`}
-        className="block text-small font-medium text-primary hover:underline truncate"
+      <button
+        type="button"
+        onClick={onOpenMeeting}
+        className="block w-full text-left text-small font-medium text-primary hover:underline truncate"
       >
         {meeting?.title ?? `Встреча #${meetingId}`}
-      </Link>
+      </button>
       {isOwner && (
         <div className="mt-2 flex gap-2">
           <Button

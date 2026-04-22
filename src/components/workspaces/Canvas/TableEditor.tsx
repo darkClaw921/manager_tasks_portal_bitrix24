@@ -142,10 +142,10 @@ export function TableEditor({ element, viewport, onCommit, onCancel }: TableEdit
       >
         <tbody>
           {draft.map((row, r) => (
-            <tr key={r}>
+            <tr key={`row-${r}`}>
               {row.map((value, c) => (
                 <td
-                  key={c}
+                  key={`${r}-${c}`}
                   style={{
                     border: '1px solid #d1d5db',
                     padding: 0,

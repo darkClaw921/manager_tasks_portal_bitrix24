@@ -96,7 +96,7 @@ export function MeetingWorkspacesPanel({
         setShowCreate(false);
         setTitle('');
         if (typeof window !== 'undefined') {
-          window.open(`/workspaces/${json.data.id}`, '_blank', 'noopener');
+          window.open(`/workspaces/${json.data.id}`, '_blank');
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Не удалось создать доску');

@@ -44,7 +44,9 @@ async function loadDevices(
 ): Promise<DeviceState> {
   let items: MediaDeviceInfo[] = [];
   try {
-    items = await Room.getLocalDevices(kind);
+    // requestPermissions=false — не триггерить getUserMedia prompt.
+    // Иначе на Safari запрос может прервать активный screen share track.
+    items = await Room.getLocalDevices(kind, false);
   } catch (err) {
     console.warn('[DeviceSettingsModal] getLocalDevices failed:', kind, err);
     items = [];

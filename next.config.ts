@@ -93,6 +93,14 @@ const withPWA = withPWAInit({
 const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["pdfmake"],
+  // Ensure pdfmake font .ttf binaries are copied into the standalone output.
+  // outputFileTracing can't statically see these — they're read via fs.readFileSync
+  // at runtime (path derived from require.resolve, see src/lib/payments/pdf-generator.ts).
+  outputFileTracingIncludes: {
+    "/api/payments/export": [
+      "./node_modules/pdfmake/build/fonts/Roboto/*.ttf",
+    ],
+  },
 };
 
 export default withPWA(nextConfig);

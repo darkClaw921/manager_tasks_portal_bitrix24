@@ -281,6 +281,46 @@ export function CloseIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function FullscreenEnterIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M4 9V5a1 1 0 0 1 1-1h4" />
+      <path d="M20 9V5a1 1 0 0 0-1-1h-4" />
+      <path d="M4 15v4a1 1 0 0 0 1 1h4" />
+      <path d="M20 15v4a1 1 0 0 1-1 1h-4" />
+    </svg>
+  );
+}
+
+export function FullscreenExitIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M9 4v4a1 1 0 0 1-1 1H4" />
+      <path d="M15 4v4a1 1 0 0 0 1 1h4" />
+      <path d="M9 20v-4a1 1 0 0 0-1-1H4" />
+      <path d="M15 20v-4a1 1 0 0 1 1-1h4" />
+    </svg>
+  );
+}
+
 export function HostBadgeIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg

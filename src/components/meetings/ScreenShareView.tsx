@@ -19,7 +19,7 @@
  *  accept the `overlayContainerRef` and mount into that slot.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   type VideoTrack,
   type Participant,
@@ -28,6 +28,7 @@ import {
 import { cn } from '@/lib/utils';
 import { DrawingOverlay } from './DrawingOverlay';
 import { DrawingToolbar } from './DrawingToolbar';
+import { FullscreenEnterIcon, FullscreenExitIcon } from './icons';
 
 export interface ScreenShareViewProps {
   /** The screen-share video track. Required — caller only mounts this when a track exists. */
@@ -63,8 +64,10 @@ export function ScreenShareView({
   userId,
   className,
 }: ScreenShareViewProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   // We need to trigger a re-render once the <video> element mounts so the
   // DrawingOverlay receives a non-null `videoElement` prop and can size
   // itself. A ref alone wouldn't notify us of the assignment.
@@ -107,10 +110,52 @@ export function ScreenShareView({
     };
   }, [overlayContainerRef]);
 
+  // Fullscreen toggle. Safari uses webkit-prefixed API on the element;
+  // document-level fullscreenchange still fires there, so one listener covers both.
+  const toggleFullscreen = useCallback(async () => {
+    const el = containerRef.current as
+      | (HTMLDivElement & {
+          webkitRequestFullscreen?: () => Promise<void>;
+        })
+      | null;
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void>;
+    };
+    const active = doc.fullscreenElement ?? doc.webkitFullscreenElement;
+    try {
+      if (!active) {
+        if (!el) return;
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
+      } else {
+        if (doc.exitFullscreen) await doc.exitFullscreen();
+        else if (doc.webkitExitFullscreen) await doc.webkitExitFullscreen();
+      }
+    } catch (err) {
+      console.warn('[ScreenShareView] fullscreen toggle failed:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onChange = () => {
+      const doc = document as Document & { webkitFullscreenElement?: Element | null };
+      const active = doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+      setIsFullscreen(active === containerRef.current);
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
+
   const presenterName = participant.name ?? participant.identity;
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         'relative flex h-full w-full items-center justify-center overflow-hidden rounded-card bg-black text-white',
         className
@@ -156,6 +201,20 @@ export function ScreenShareView({
       <div className="absolute left-3 top-3 rounded bg-black/60 px-2 py-1 text-small">
         Демонстрация: {presenterName}
       </div>
+
+      {/* Fullscreen toggle. */}
+      <button
+        type="button"
+        onClick={toggleFullscreen}
+        aria-label={isFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
+        className="absolute right-3 top-3 rounded bg-black/60 p-2 text-white hover:bg-black/80 focus:outline-none focus:ring-2 focus:ring-white/40"
+      >
+        {isFullscreen ? (
+          <FullscreenExitIcon className="h-4 w-4" />
+        ) : (
+          <FullscreenEnterIcon className="h-4 w-4" />
+        )}
+      </button>
 
       {/* Drawing toolbar — shown to anyone in the room (any participant can
           annotate the shared screen). Hidden if no room/userId was provided. */}

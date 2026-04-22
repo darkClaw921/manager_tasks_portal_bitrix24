@@ -160,6 +160,14 @@ export async function exportWorkspaceAsPng(workspaceId: number | undefined): Pro
  * need them on the initial page load.
  */
 export async function exportWorkspaceAsPdf(workspaceId: number | undefined): Promise<boolean> {
+  // CSS px → PDF pt conversion factor. pdfmake interprets pageSize and
+  // image.width/height values as PostScript points (1 pt = 1/72 inch).
+  // Canvas dimensions we compute here are in CSS pixels (1 px = 1/96 inch).
+  // Without this factor a 1920×1080 canvas becomes a ~1920×1080 pt page,
+  // i.e. ~26×15 inch — near / past pdfmake's internal size limits and the
+  // embedded PNG gets clipped or the generator fails silently.
+  const PX_TO_PT = 72 / 96;
+
   await waitForImagesLoaded(workspaceId);
   const result = renderToOffscreenCanvas(workspaceId);
   if (!result) return false;
@@ -168,6 +176,8 @@ export async function exportWorkspaceAsPdf(workspaceId: number | undefined): Pro
   const finalCanvas = second?.canvas ?? result.canvas;
   const widthCss = (second ?? result).widthCss;
   const heightCss = (second ?? result).heightCss;
+  const widthPt = widthCss * PX_TO_PT;
+  const heightPt = heightCss * PX_TO_PT;
   const dataUrl = finalCanvas.toDataURL('image/png');
   // Lazy-import pdfmake (large bundle).
   const [{ default: pdfMake }, { default: vfs }] = await Promise.all([
@@ -180,12 +190,13 @@ export async function exportWorkspaceAsPdf(workspaceId: number | undefined): Pro
   (pdfMake as any).vfs = (vfs as any).pdfMake?.vfs ?? (vfs as any).default?.vfs ?? (pdfMake as any).vfs;
 
   const docDef = {
-    pageSize: { width: widthCss, height: heightCss },
+    pageSize: { width: widthPt, height: heightPt },
     pageMargins: [0, 0, 0, 0] as [number, number, number, number],
     content: [
       {
         image: dataUrl,
-        width: widthCss,
+        width: widthPt,
+        height: heightPt,
       },
     ],
   };
@@ -199,7 +210,19 @@ export async function exportWorkspaceAsPdf(workspaceId: number | undefined): Pro
         resolve(true);
       });
     } catch (err) {
+      // Surface the failure to the user — previously this path resolved
+      // silently with `false`, so a broken export looked like "nothing
+      // happened" with no clue in the UI.
       console.error('[export] PDF generation failed:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      if (typeof window !== 'undefined') {
+        try {
+          window.alert(`Не удалось экспортировать доску в PDF: ${message}`);
+        } catch {
+          // alert unavailable (e.g. headless test env) — console.error above
+          // is our last resort.
+        }
+      }
       resolve(false);
     }
   });

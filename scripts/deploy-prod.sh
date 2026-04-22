@@ -90,6 +90,126 @@ env_set() {
     fi
 }
 
+ensure_infra_files() {
+    local infra_dir="${PROJECT_DIR}/infra"
+    mkdir -p "$infra_dir"
+
+    local livekit_yaml="${infra_dir}/livekit.yaml"
+    if [ ! -f "$livekit_yaml" ]; then
+        warn "infra/livekit.yaml отсутствует, генерирую..."
+        cat > "$livekit_yaml" <<'EOF'
+# ============================================================
+# LiveKit Server configuration — dev defaults
+# ============================================================
+# In production override these values by mounting a different file
+# or via `LIVEKIT_*` env vars. The API key/secret below MUST match
+# the LIVEKIT_API_KEY / LIVEKIT_API_SECRET used by Next.js API and
+# the meeting-worker fastify service.
+
+port: 7880
+bind_addresses:
+  - ""
+
+log_level: info
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  # Set to true in production behind NAT to announce the public IP.
+  use_external_ip: false
+
+# API credentials.
+# TODO: replace with env-substituted values in production. For docker compose
+#       use `${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}` and pass secrets via .env.
+keys:
+  __LIVEKIT_API_KEY__: __LIVEKIT_API_SECRET__
+
+# Redis — psrpc bus shared with livekit-egress worker.
+redis:
+  address: redis:6379
+
+# Webhook: LiveKit → meeting-worker (fastify on port 3100).
+# `api_key` selects which key from `keys:` will sign webhook JWTs.
+webhook:
+  api_key: __LIVEKIT_API_KEY__
+  urls:
+    - http://meeting-worker:3100/webhook
+
+# Room defaults (optional; can be overridden per-room via server SDK).
+room:
+  auto_create: true
+  empty_timeout: 300         # seconds before an empty room is GC'd
+  max_participants: 50
+
+# Turn / Ingress / Egress configured in dedicated services (Phase 4+).
+EOF
+        local lk_key lk_secret
+        lk_key=$(env_get LIVEKIT_API_KEY)
+        lk_secret=$(env_get LIVEKIT_API_SECRET)
+        sed -i.bak "s|__LIVEKIT_API_KEY__|${lk_key}|g; s|__LIVEKIT_API_SECRET__|${lk_secret}|g" \
+            "$livekit_yaml"
+        rm -f "${livekit_yaml}.bak"
+        ok "infra/livekit.yaml создан"
+    fi
+
+    local egress_yaml="${infra_dir}/egress.yaml"
+    if [ ! -f "$egress_yaml" ]; then
+        warn "infra/egress.yaml отсутствует, генерирую..."
+        cat > "$egress_yaml" <<'EOF'
+# ============================================================
+# LiveKit Egress worker configuration
+# ------------------------------------------------------------
+# Registers with LiveKit server via Redis psrpc bus and handles
+# Room Composite / Track / Web egress requests. Writes output
+# files to the shared volume mounted at /app/data/recordings.
+# ============================================================
+
+log_level: info
+api_key: __LIVEKIT_API_KEY__
+api_secret: __LIVEKIT_API_SECRET__
+ws_url: ws://livekit:7880
+
+redis:
+  address: redis:6379
+
+# Allowlist filesystem destinations. Must match the host path the
+# meeting-worker writes into `EncodedFileOutput.filepath`.
+file_outputs:
+  - /app/data/recordings
+
+# Enable the egress types we actually use.
+room_composite:
+  enabled: true
+track:
+  enabled: true
+track_composite:
+  enabled: true
+
+# Insecure outbound disabled; all I/O is to local volume.
+insecure_outbound: false
+
+# CPU cost overrides — the egress worker refuses tasks whose declared cost
+# exceeds available vCPUs. Defaults require 4 vCPU for room_composite; lower
+# them so the pipeline works on 3-vCPU hosts. Quality at 720p30 may degrade
+# under load; upgrade to >= 4 vCPU for full fidelity.
+cpu_cost:
+  room_composite_cpu_cost: 2.5
+  audio_room_composite_cpu_cost: 1.0
+  track_composite_cpu_cost: 2.0
+  track_cpu_cost: 0.5
+  web_cpu_cost: 2.5
+EOF
+        local eg_key eg_secret
+        eg_key=$(env_get LIVEKIT_API_KEY)
+        eg_secret=$(env_get LIVEKIT_API_SECRET)
+        sed -i.bak "s|__LIVEKIT_API_KEY__|${eg_key}|g; s|__LIVEKIT_API_SECRET__|${eg_secret}|g" \
+            "$egress_yaml"
+        rm -f "${egress_yaml}.bak"
+        ok "infra/egress.yaml создан"
+    fi
+}
+
 prompt_value() {
     local var="$1" description="$2" default="${3:-}" current
     current=$(env_get "$var")
@@ -680,6 +800,11 @@ fi
 ok "Environment validated"
 
 # --------------------------------------------------
+# Infra files: generate infra/livekit.yaml, infra/egress.yaml if missing
+# --------------------------------------------------
+ensure_infra_files
+
+# --------------------------------------------------
 # Server preflight + plan
 # --------------------------------------------------
 
@@ -713,7 +838,7 @@ plan "APP_URL  = ${APP_URL}"
 plan "LIVEKIT  = ${LK_URL}"
 plan "PORT     = ${PORT}"
 if [ "$COMMAND" != "preflight" ]; then
-    plan "docker compose down (если запущен)"
+    plan "docker compose up -d --build (без down — hot-swap)"
     plan "docker compose build"
     plan "docker compose up -d (taskhub + livekit + livekit-egress + redis + meeting-worker)"
     plan "Ожидание healthcheck taskhub"
@@ -746,13 +871,6 @@ echo ""
 if ! ask_yn "Продолжить деплой?" "y"; then
     info "Отменено пользователем."
     exit 0
-fi
-
-# 3. Stop existing container if running
-if docker compose ps --format json 2>/dev/null | grep -q "taskhub"; then
-    info "Stopping existing container..."
-    docker compose down
-    ok "Stopped"
 fi
 
 # 4. Build image
