@@ -28,7 +28,22 @@ import {
 import { cn } from '@/lib/utils';
 import { DrawingOverlay } from './DrawingOverlay';
 import { DrawingToolbar } from './DrawingToolbar';
-import { FullscreenEnterIcon, FullscreenExitIcon } from './icons';
+import { FullscreenEnterIcon, FullscreenExitIcon, PencilIcon } from './icons';
+
+const requestFs = (el: HTMLElement) => {
+  const e = el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
+  return e.requestFullscreen?.() ?? e.webkitRequestFullscreen?.();
+};
+
+const exitFs = () => {
+  const d = document as Document & { webkitExitFullscreen?: () => Promise<void> };
+  return d.exitFullscreen?.() ?? d.webkitExitFullscreen?.();
+};
+
+const getFsElement = () => {
+  const d = document as Document & { webkitFullscreenElement?: Element | null };
+  return d.fullscreenElement ?? d.webkitFullscreenElement ?? null;
+};
 
 export interface ScreenShareViewProps {
   /** The screen-share video track. Required — caller only mounts this when a track exists. */
@@ -75,6 +90,15 @@ export function ScreenShareView({
   // Drawing input is opt-in via the toolbar — defaults to off so right-click
   // on the shared screen still works for the receiver.
   const [drawingEnabled, setDrawingEnabled] = useState(false);
+  // Toolbar panel is hidden by default; toggled via the pencil button.
+  const [showToolbar, setShowToolbar] = useState(false);
+
+  const toggleToolbar = useCallback(() => {
+    setShowToolbar((v) => {
+      if (v) setDrawingEnabled(false); // disable drawing when hiding toolbar
+      return !v;
+    });
+  }, []);
 
   // Combined ref so we keep the existing internal `videoRef` for track.attach
   // while also driving state updates for the overlay.
@@ -110,27 +134,15 @@ export function ScreenShareView({
     };
   }, [overlayContainerRef]);
 
-  // Fullscreen toggle. Safari uses webkit-prefixed API on the element;
-  // document-level fullscreenchange still fires there, so one listener covers both.
   const toggleFullscreen = useCallback(async () => {
-    const el = containerRef.current as
-      | (HTMLDivElement & {
-          webkitRequestFullscreen?: () => Promise<void>;
-        })
-      | null;
-    const doc = document as Document & {
-      webkitFullscreenElement?: Element | null;
-      webkitExitFullscreen?: () => Promise<void>;
-    };
-    const active = doc.fullscreenElement ?? doc.webkitFullscreenElement;
+    const el = containerRef.current;
+    const active = getFsElement();
     try {
       if (!active) {
         if (!el) return;
-        if (el.requestFullscreen) await el.requestFullscreen();
-        else if (el.webkitRequestFullscreen) await el.webkitRequestFullscreen();
+        await requestFs(el);
       } else {
-        if (doc.exitFullscreen) await doc.exitFullscreen();
-        else if (doc.webkitExitFullscreen) await doc.webkitExitFullscreen();
+        await exitFs();
       }
     } catch (err) {
       console.warn('[ScreenShareView] fullscreen toggle failed:', err);
@@ -139,9 +151,7 @@ export function ScreenShareView({
 
   useEffect(() => {
     const onChange = () => {
-      const doc = document as Document & { webkitFullscreenElement?: Element | null };
-      const active = doc.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
-      setIsFullscreen(active === containerRef.current);
+      setIsFullscreen(getFsElement() === containerRef.current);
     };
     document.addEventListener('fullscreenchange', onChange);
     document.addEventListener('webkitfullscreenchange', onChange);
@@ -151,28 +161,45 @@ export function ScreenShareView({
     };
   }, []);
 
+  // Double-click on the video goes fullscreen.
+  const handleVideoDoubleClick = useCallback(() => {
+    void toggleFullscreen();
+  }, [toggleFullscreen]);
+
+  // Keyboard: F key toggles fullscreen while the container is focused.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'f' || e.key === 'F') {
+        if (document.activeElement === containerRef.current || getFsElement() === containerRef.current) {
+          e.preventDefault();
+          void toggleFullscreen();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [toggleFullscreen]);
+
   const presenterName = participant.name ?? participant.identity;
 
   return (
     <div
       ref={containerRef}
+      tabIndex={-1}
       className={cn(
-        'relative flex h-full w-full items-center justify-center overflow-hidden rounded-card bg-black text-white',
+        'group relative flex h-full w-full items-center justify-center overflow-hidden rounded-card bg-black text-white outline-none',
+        isFullscreen && 'rounded-none',
         className
       )}
       data-meeting-surface="screen-share"
     >
-      {/*
-        Using `object-contain` keeps the source aspect ratio and letterboxes
-        with black bars if the viewport differs. The overlay container below
-        covers the same rect so normalized ([0..1]) stroke coordinates land
-        on the actual pixels of the shared surface.
-      */}
       <video
         ref={setVideoRef}
         autoPlay
         playsInline
         muted
+        onDoubleClick={handleVideoDoubleClick}
+        title="Двойной клик — полный экран"
         className="h-full w-full object-contain"
       />
 
@@ -202,23 +229,39 @@ export function ScreenShareView({
         Демонстрация: {presenterName}
       </div>
 
-      {/* Fullscreen toggle. */}
-      <button
-        type="button"
-        onClick={toggleFullscreen}
-        aria-label={isFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
-        className="absolute right-3 top-3 rounded bg-black/60 p-2 text-white hover:bg-black/80 focus:outline-none focus:ring-2 focus:ring-white/40"
-      >
-        {isFullscreen ? (
-          <FullscreenExitIcon className="h-4 w-4" />
-        ) : (
-          <FullscreenEnterIcon className="h-4 w-4" />
+      {/* Top-right action buttons — visible on hover. */}
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        {drawingAvailable && (
+          <button
+            type="button"
+            onClick={toggleToolbar}
+            title={showToolbar ? 'Скрыть панель рисования' : 'Рисование на экране'}
+            aria-label={showToolbar ? 'Скрыть панель рисования' : 'Рисование на экране'}
+            className={cn(
+              'rounded p-2 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-white/40',
+              showToolbar ? 'bg-white/30 hover:bg-white/40' : 'bg-black/70 hover:bg-black/90'
+            )}
+          >
+            <PencilIcon className="h-5 w-5" />
+          </button>
         )}
-      </button>
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Выйти из полноэкранного режима (F)' : 'Развернуть на весь экран (F / двойной клик)'}
+          aria-label={isFullscreen ? 'Выйти из полноэкранного режима' : 'Во весь экран'}
+          className="rounded bg-black/70 p-2 text-white hover:bg-black/90 focus:outline-none focus:ring-2 focus:ring-white/40"
+        >
+          {isFullscreen ? (
+            <FullscreenExitIcon className="h-5 w-5" />
+          ) : (
+            <FullscreenEnterIcon className="h-5 w-5" />
+          )}
+        </button>
+      </div>
 
-      {/* Drawing toolbar — shown to anyone in the room (any participant can
-          annotate the shared screen). Hidden if no room/userId was provided. */}
-      {drawingAvailable && (
+      {/* Drawing toolbar — hidden by default, shown when pencil button pressed. */}
+      {drawingAvailable && showToolbar && (
         <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2">
           <DrawingToolbar
             room={room ?? null}

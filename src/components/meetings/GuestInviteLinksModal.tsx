@@ -47,6 +47,13 @@ function formatDate(iso: string): string {
   }
 }
 
+function buildJoinUrl(token: string): string {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/join/${token}`;
+  }
+  return `/join/${token}`;
+}
+
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -82,7 +89,7 @@ export function GuestInviteLinksModal({ meetingId, open, onClose }: GuestInviteL
   const handleCreate = useCallback(async () => {
     try {
       const link = await create.mutateAsync();
-      const ok = await copyToClipboard(link.url);
+      const ok = await copyToClipboard(buildJoinUrl(link.token));
       if (ok) {
         setCopiedToken(link.token);
         toast('success', 'Ссылка создана и скопирована');
@@ -97,7 +104,7 @@ export function GuestInviteLinksModal({ meetingId, open, onClose }: GuestInviteL
 
   const handleCopy = useCallback(
     async (link: { url: string; token: string }) => {
-      const ok = await copyToClipboard(link.url);
+      const ok = await copyToClipboard(buildJoinUrl(link.token));
       if (ok) {
         setCopiedToken(link.token);
         toast('success', 'Скопировано');
@@ -181,7 +188,7 @@ export function GuestInviteLinksModal({ meetingId, open, onClose }: GuestInviteL
               >
                 <input
                   readOnly
-                  value={link.url}
+                  value={buildJoinUrl(link.token)}
                   onFocus={(e) => e.currentTarget.select()}
                   className="w-full truncate rounded-input border border-border bg-surface px-2 py-1 text-small text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
